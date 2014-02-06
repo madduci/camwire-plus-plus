@@ -22,14 +22,15 @@
     USA
 
 
-    Title: Header for camwirebus.c
+    Title: Header for CameraBus.cpp
 
-    Description: This Camwirebus module is about finding all visible
+    Description: This CameraBus module is about finding all visible
     cameras and providing handles to them.  The handles are all a user
     should need for implementation-independent access to all camera
     functions.  Functions to control individual cameras through their
-    handles are defined in the main Camwire module.
+    handles are defined in the main Camera module.
 
+CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 ***********************************************************************/
 
 

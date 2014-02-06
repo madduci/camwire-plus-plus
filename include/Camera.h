@@ -22,7 +22,7 @@
     USA
 
 
-    Title: Header for camwire_1394.c
+    Title: Header for Camera.cpp
 
     Description:
     This module is about using a single named camera through its
@@ -30,6 +30,7 @@
     access to all camera functions.  Finding cameras and assigning
     handles to them is done in the Camwire bus module.
 
+CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 ******************************************************************************/
 
 #include <CameraData.h>

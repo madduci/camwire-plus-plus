@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 2.8.7)
 
-set (PACKAGE_NAME "Camwire++")
-set (LIBRARY_NAME "camwire++")
+set (PACKAGE_NAME "CamwirePlus")
+set (LIBRARY_NAME "camwireplus")
 
 project (${LIBRARY_NAME} C CXX)
 

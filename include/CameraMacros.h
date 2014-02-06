@@ -1,5 +1,5 @@
-#ifndef CAMWIREMACROS_H
-#define CAMWIREMACROS_H
+#ifndef CAMERAMACROS_H
+#define CAMERAMACROS_H
 /***********************************************************************
 
     Copyright (c) Industrial Research Limited 2004-2011
@@ -31,8 +31,8 @@
     implementation-specific files, i.e. into files that contain `1394'
     in the file name.
 
+CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 ***********************************************************************/
-
 
 #include <iostream>
 

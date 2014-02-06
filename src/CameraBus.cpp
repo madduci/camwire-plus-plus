@@ -20,15 +20,16 @@
     USA
 
    
-    Title: Camwire bus module
+    Title: Camera Bus module
 
     Description:
-    This Camwire bus module is about finding all visible cameras and
+    This Camera bus module is about finding all visible cameras and
     providing handles to them.  The handles should be all a user need
     know about for complete access to all camera functions.  Functions
     to control individual cameras through their handles are defined in
-    the Camwire main module.
+    the Camera main module.
 
+CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 ***********************************************************************/
 #include <cstdlib>  /* calloc, malloc, free */
 
