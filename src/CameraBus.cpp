@@ -33,7 +33,6 @@ CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 ***********************************************************************/
 #include <cstdlib>  /* calloc, malloc, free */
 
-#include <CameraHandle.h>  /* Camwire_handle */
 #include <CameraBus.h>
 #include <iostream>
 

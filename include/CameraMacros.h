@@ -48,17 +48,17 @@ CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 /* Function error status returns, for readability and
    maintainability: */
 #define ERROR_IF_NULL(p) \
-    if ((p)==NULL) {DPRINTF("Null pointer."); return(CAMWIRE_FAILURE);}
+    if ((p)==NULL) {DPRINTF("Null pointer."); return(CAMERA_FAILURE);}
 #define ERROR_IF_ZERO(v) \
-    if ((v)==0) {DPRINTF("Bad (zero) value."); return(CAMWIRE_FAILURE);}
+    if ((v)==0) {DPRINTF("Bad (zero) value."); return(CAMERA_FAILURE);}
 #define ERROR_IF_CAMWIRE_FAIL(r) \
-    if ((r)!=CAMWIRE_SUCCESS) \
+    if ((r)!=CAMERA_SUCCESS) \
       {DPRINTF("Camwire function call failed."); \
-       return(CAMWIRE_FAILURE);}
+       return(CAMERA_FAILURE);}
 #define ERROR_IF_DC1394_FAIL(r)	\
-    if ((r)!=DC1394_SUCCESS) \
+    if ((r)!= DC1394_SUCCESS) \
       {DPRINTF("dc1394 function call failed."); \
-       return(CAMWIRE_FAILURE);}
+       return(CAMERA_FAILURE);}
 
 
 #endif /* ndef CAMWIREMACROS_H */
