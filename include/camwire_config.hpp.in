@@ -1,0 +1,4 @@
+// the configured options and settings for Camwire
+#define Camwire_VERSION_MAJOR @Camwire_VERSION_MAJOR@
+#define Camwire_VERSION_MINOR @Camwire_VERSION_MINOR@
+#define Camwire_VERSION_PATCH @Camwire_VERSION_PATCH@

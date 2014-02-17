@@ -1,5 +1,5 @@
-#ifndef CAMERADATA_H
-#define CAMERADATA_H
+#ifndef CAMWIRE_HANDLE_HPP
+#define CAMWIRE_HANDLE_HPP
 /******************************************************************************
 
     Copyright (c) Industrial Research Limited 2004-2011
@@ -21,8 +21,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
     USA
 
-
-    Title: Header for Camera.cpp
+    Title: Header for camwire_handle.cpp
 
     Description:
     This module is about using a single named camera through its
@@ -30,24 +29,26 @@
     access to all camera functions.  Finding cameras and assigning
     handles to them is done in the Camwire bus module.
 
-CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
+Camwire++: Michele Adduci <info@micheleadduci.net>
+
+Differences from Camwire:
+
+Included all the structure definition contain in camwire.c directly in one
+header file, to extract data representation from logic.
 ******************************************************************************/
 
+#include <cinttypes>
 #include <memory>
 #include <dc1394/camera.h>  /* dc1394camera_t.*/
-//#include <ctime>     /* For struct timespec.*/
+//#include <ctime>          /* For struct timespec.*/
 
-/* If consistently used, it should be possible to change these return
-   codes without breaking anything: */
-#define CAMERA_SUCCESS 0
-#define CAMERA_FAILURE 1
 
-namespace cw
+namespace camwire
 {
     /*  Type for a unique camera identifier comprising null-terminated vendor
         name, model name, and chip number strings, such as used by
         camwire_get_identifier() below. */
-    struct CameraID
+    struct Camwire_id
     {
         std::string vendor;
         std::string model;
@@ -57,34 +58,34 @@ namespace cw
     /* Type for selecting the pixel encoding and pixel depth, as used by
        camwire_get/set_pixel_coding() and camwire_pixel_depth() below.
     */
-    enum CameraPixel
+    enum Camwire_pixel
     {
-        CAMERA_PIXEL_INVALID,
-        CAMERA_PIXEL_MONO8,	/*  8 bits average.*/
-        CAMERA_PIXEL_YUV411,	/* 12 bits average.*/
-        CAMERA_PIXEL_YUV422,	/* 16 bits average.*/
-        CAMERA_PIXEL_YUV444,	/* 24 bits average.*/
-        CAMERA_PIXEL_RGB8,		/* 24 bits average.*/
-        CAMERA_PIXEL_MONO16,	/* 16 bits average.*/
-        CAMERA_PIXEL_RGB16,	/* 48 bits average.*/
-        CAMERA_PIXEL_MONO16S,	/* 16 bits average.*/
-        CAMERA_PIXEL_RGB16S,	/* 48 bits average.*/
-        CAMERA_PIXEL_RAW8,		/*  8 bits average.*/
-        CAMERA_PIXEL_RAW16		/* 16 bits average.*/
+        CAMWIRE_PIXEL_INVALID,
+        CAMWIRE_PIXEL_MONO8,	/*  8 bits average.*/
+        CAMWIRE_PIXEL_YUV411,	/* 12 bits average.*/
+        CAMWIRE_PIXEL_YUV422,	/* 16 bits average.*/
+        CAMWIRE_PIXEL_YUV444,	/* 24 bits average.*/
+        CAMWIRE_PIXEL_RGB8,		/* 24 bits average.*/
+        CAMWIRE_PIXEL_MONO16,	/* 16 bits average.*/
+        CAMWIRE_PIXEL_RGB16,	/* 48 bits average.*/
+        CAMWIRE_PIXEL_MONO16S,	/* 16 bits average.*/
+        CAMWIRE_PIXEL_RGB16S,	/* 48 bits average.*/
+        CAMWIRE_PIXEL_RAW8,		/*  8 bits average.*/
+        CAMWIRE_PIXEL_RAW16		/* 16 bits average.*/
     };
 
     /* Type for selecting the pixel tiling of colour-tiled camera sensors,
        as used by camwire_get_pixel_tiling() below.
     */
-    enum CameraTiling
+    enum Camwire_tiling
     {
-        CAMERA_TILING_INVALID,
-        CAMERA_TILING_RGGB,
-        CAMERA_TILING_GBRG,
-        CAMERA_TILING_GRBG,
-        CAMERA_TILING_BGGR,
-        CAMERA_TILING_UYVY,
-        CAMERA_TILING_YUYV
+        CAMWIRE_TILING_INVALID,
+        CAMWIRE_TILING_RGGB,
+        CAMWIRE_TILING_GBRG,
+        CAMWIRE_TILING_GRBG,
+        CAMWIRE_TILING_BGGR,
+        CAMWIRE_TILING_UYVY,
+        CAMWIRE_TILING_YUYV
     };
 
 
@@ -180,7 +181,7 @@ namespace cw
                 the camera hardware (which takes longer and may
                 cause congestion of the asynchronous bandwidth).
     */
-    struct CameraState
+    struct Camwire_state
     {
         int num_frame_buffers;
         double gain;
@@ -190,8 +191,8 @@ namespace cw
         int colour_corr;
         double colour_coef[9];
         int left, top, width, height;
-        CameraPixel coding;
-        CameraTiling tiling;
+        Camwire_pixel coding;
+        Camwire_tiling tiling;
         double frame_rate, shutter;
         int external_trigger, trigger_polarity;
         int single_shot, running;
@@ -202,7 +203,7 @@ namespace cw
        that the casual user probably does not want to know about.  See
        CONFIGURATION documentation for a detailed description of each
        member. */
-    struct CameraConf
+    struct Camwire_conf
     {
         int bus_speed;
         int format;
@@ -225,13 +226,13 @@ namespace cw
        recorded in the dc1394featureset_t in Camwire_user_data below.
        struct extra_features is initialized (by calloc() in function
        create()) to all zeros: */
-    struct ExtraFeatures
+    struct Extra_features
     {
         int single_shot_capable;  /* Flag.*/
         int gamma_capable;        /* Flag.*/
-        int16_t gamma_maxval;
+        uint16_t gamma_maxval;
         int colour_corr_capable;  /* Flag.*/
-        CameraTiling tiling_value;
+        Camwire_tiling tiling_value;
     };
 
     /* Internal camera state parameters.  If the current_set->shadow flag is
@@ -240,7 +241,7 @@ namespace cw
        camwire handle structure contains a userdata pointer which is set to
        an instance of this structure.  It is initialized (by calloc() in
        function create()) to all zeros: */
-    struct CameraUserData
+    struct Camwire_user_data
     {
         int camera_connected;  /* Flag.*/
         int frame_lock;        /* Flag.*/
@@ -248,23 +249,23 @@ namespace cw
                         before 63-bit overflow.*/
         int num_dma_buffers;   /* What capturing was set up with.*/
         double dma_timestamp;  /* Persistent record of last DMA buffer timestamp.*/
-        ExtraFeatures extras;
+        Extra_features extras;
         dc1394featureset_t feature_set;
         dc1394video_frame_t *frame;
-        CameraConf *config_cache;
-        CameraState *current_set;
+        Camwire_conf *config_cache;
+        Camwire_state *current_set;
     };
 
-    typedef std::shared_ptr<dc1394camera_t>    CameraHandle;
-    typedef std::shared_ptr<CameraUserData>    UserHandle;
+    typedef std::shared_ptr<dc1394camera_t>       Camera_handle;
+    typedef std::shared_ptr<Camwire_user_data>    User_handle;
 
-    struct CameraBusHandle
+    struct Camwire_bus_handle
     {
-        CameraHandle camera;
-        UserHandle userdata;
+        Camera_handle camera;
+        User_handle userdata;
     };
 
-    typedef std::shared_ptr<CameraBusHandle>   CameraBusHandlePtr;
+    typedef std::shared_ptr<Camwire_bus_handle>   Camwire_bus_handle_ptr;
 }
 
 #endif

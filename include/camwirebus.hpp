@@ -1,5 +1,5 @@
-#ifndef CAMERABUS_H
-#define CAMERABUS_H
+#ifndef CAMWIREBUS_HPP
+#define CAMWIREBUS_HPP
 /***********************************************************************
 
     Copyright (c) Industrial Research Limited 2004-2011
@@ -22,7 +22,7 @@
     USA
 
 
-    Title: Header for CameraBus.cpp
+    Title: Header for camwirebus.cpp
 
     Description: This CameraBus module is about finding all visible
     cameras and providing handles to them.  The handles are all a user
@@ -30,53 +30,53 @@
     functions.  Functions to control individual cameras through their
     handles are defined in the main Camera module.
 
-CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
+Camwire++: Michele Adduci <info@micheleadduci.net>
 ***********************************************************************/
 
 
-#include <CameraData.h>  /* Camwire_handle */
+#include <camwire_handle.hpp>  /* Camwire_handle */
 #include <dc1394/dc1394.h>
 #include <vector>
 
-namespace cw
+namespace camwire
 {
-    class CameraBus
+    class camwirebus
     {
         public:
-            CameraBus();
-            ~CameraBus();
-            /* Generates an array of all available Camera Handlers.
+            camwirebus();
+            ~camwirebus();
+            /* Generates an array of all available Camwire Handlers.
              * The camera are not initialized. If no camera are found,
                 the function returns false and num_cams is 0.
                 If init() is called again, without calling release(), it
                 doesn't do anything else
             */
-            bool init();
+            bool create();
             /* Returns true if a bus has been created succesfully */
-            bool isExisting();
+            bool exists();
             /* Returns true if the memory allocations are freed completely */
-            bool release();
+            bool destroy();
             /* Requests a reset of each bus which has cameras attached. */
             bool reset();
             /* Registers a pointer to a user data structure for the given camwire.
                Needed internally by Camwire++   -- To be changed
             */
-            bool setCameraUserData(const int num_camera, UserHandle user_data);
+            bool set_handle_userdata(const int num_camera, User_handle user_data);
             /* Returns the number of camera discovered */
-            int getNumberOfCameras();
-            /* Returns all the dc1394camera_t camera handlers
-               Needed by many dc1394 functions in Camwire. */
-            std::vector<CameraBusHandlePtr> getCameraHandlers();
+            int get_number_cameras();
             /* Returns the dc1394camera_t camera handler for the given camera number
                Needed by many dc1394 functions in Camwire. */
-            CameraBusHandlePtr getSingleCameraHandler(const int num_camera = 0);
+            Camwire_bus_handle_ptr get_camera(const int num_camera = 0);
+            /* Returns all the dc1394camera_t camera handlers
+               Needed by many dc1394 functions in Camwire. */
+            std::vector<Camwire_bus_handle_ptr> get_camera_handlers();
 
         private:
             int num_cams;
             dc1394_t* dc1394_lib;
-            std::vector<CameraBusHandlePtr> handlers;
-            CameraBus(const CameraBus &cb);
-            CameraBus& operator=(const CameraBus &cb);
+            std::vector<Camwire_bus_handle_ptr> handlers;
+            camwirebus(const camwirebus &cb);
+            camwirebus& operator=(const camwirebus &cb);
     };
 
 }

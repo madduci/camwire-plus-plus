@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 2.8.7)
 
-set (PACKAGE_NAME "CamwirePlus")
-set (LIBRARY_NAME "camwireplus")
+set (PACKAGE_NAME "camwire-plus-plus")
+set (LIBRARY_NAME "camwire++")
 
 project (${LIBRARY_NAME} C CXX)
 
@@ -22,13 +22,13 @@ ENDIF ()
 include_directories(src)
 include_directories(include)
 
-file(GLOB_RECURSE ${PACKAGE_NAME}_HEADERS include/*.h)
+file(GLOB_RECURSE ${PACKAGE_NAME}_HEADERS include/*.hpp)
 file(GLOB_RECURSE ${PACKAGE_NAME}_SRC src/*.cpp)
 #set(${PACKAGE_NAME}_SRC src/CameraBus.cpp)
 
 
 # Configure a header file to pass CMake Camwire_VERSION_* settings to the source code:
-configure_file("${PROJECT_SOURCE_DIR}/include/CameraConfig.h.in" "${PROJECT_BINARY_DIR}/include/CameraConfig.h")
+configure_file("${PROJECT_SOURCE_DIR}/include/camwire_config.hpp.in" "${PROJECT_BINARY_DIR}/include/camwire_config.hpp")
 
 # The Camwire library targets:
 add_library(${LIBRARY_NAME} SHARED ${${PACKAGE_NAME}_HEADERS} ${${PACKAGE_NAME}_SRC})

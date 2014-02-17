@@ -1,5 +1,5 @@
-#ifndef CAMERA_H
-#define CAMERA_H
+#ifndef CAMWIRE_HPP
+#define CAMWIRE_HPP
 /******************************************************************************
 
     Copyright (c) Industrial Research Limited 2004-2011
@@ -22,7 +22,7 @@
     USA
 
 
-    Title: Header for Camera.cpp
+    Title: Header for camwire.cpp
 
     Description:
     This module is about using a single named camera through its
@@ -30,51 +30,51 @@
     access to all camera functions.  Finding cameras and assigning
     handles to them is done in the Camwire bus module.
 
-CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
+Camwire++: Michele Adduci <info@micheleadduci.net>
 ******************************************************************************/
 
-#include <CameraData.h>
+#include <camwire_handle.hpp>
 
-namespace cw
+namespace camwire
 {
-    class Camera
+    class camwire
     {
 
         public:
-            Camera();
-            ~Camera();
+            camwire();
+            ~camwire();
             /* Sets the camera to default initialization settings and connects it to
                the bus.  This function is equivalent to getCameraState()
                followed by initFromStruct().  The handle c_handle is
                obtained from CameraBusHandle.init(). */
-            int init(const CameraBusHandlePtr &c_handle);
+            int create(const Camwire_bus_handle_ptr &c_handle);
             /* Sets the camera to the given initialization settings and connects it
                to the bus.  The CameraState structure is returned unchanged.  The
                handle c_handle is obtained from CameraBusHandle.init(). */
-            int initFromStruct(const CameraBusHandlePtr &c_handle, const CameraState &set);
+            int create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
             /* Disconnects the camera from the bus and frees memory allocated in
                init() or initFromStruct().  All camera
                settings are lost.*/
-            bool destroy(const CameraBusHandlePtr &c_handle);
+            bool destroy(const Camwire_bus_handle_ptr &c_handle);
 
-            int getCameraState(const cw::CameraBusHandlePtr &c_handle, CameraState &set);
+            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
 
-            int toggleStartStop(const CameraBusHandlePtr &c_handle, const bool singleShotMode = false);
+            int toggleStartStop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
         private:
-            CameraID camID;
-            CameraUserData camData;
-            Camera(const Camera &cam);
-            Camera& operator=(const Camera &cam);
+            Camwire_id cam_id;
+            Camwire_user_data user_data;
+            camwire(const camwire &cam);
+            camwire& operator=(const camwire &cam);
             /* Queries the camera for supported features and attempts to create
                sensible default settings.  Note that the camera itself is initialized
                to factory settings in the process. */
-            int generateDefaultSettings(const cw::CameraBusHandlePtr &c_handle, CameraState &set);
+            int generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
             /* Gets the camera's current settings from the state shadow or as
               physically read from the camera, depending on the state shadow flag. */
-            int getCurrentSettings(const cw::CameraBusHandlePtr &c_handle, CameraState &set);
-            int sleepFrameTime(const cw::CameraBusHandlePtr &c_handle, double time);
-            void disconnect(const cw::CameraBusHandlePtr &c_handle);
-            void clearInternalData(const cw::CameraBusHandlePtr &c_handle);
+            int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, double time);
+            void disconnect(const Camwire_bus_handle_ptr &c_handle);
+            void free_internals(const Camwire_bus_handle_ptr &c_handle);
 
     };
 

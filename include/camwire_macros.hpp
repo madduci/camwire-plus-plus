@@ -1,5 +1,5 @@
-#ifndef CAMERAMACROS_H
-#define CAMERAMACROS_H
+#ifndef CAMWIRE_MACROS_HPP
+#define CAMWIRE_MACROS_HPP
 /***********************************************************************
 
     Copyright (c) Industrial Research Limited 2004-2011
@@ -31,12 +31,12 @@
     implementation-specific files, i.e. into files that contain `1394'
     in the file name.
 
-CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
+Camwire++: Michele Adduci <info@micheleadduci.net>
 ***********************************************************************/
 
 #include <iostream>
 
-#include <Camera.h>
+#include <camwire.hpp>
 
 /* Print debugging error message: */
 #ifdef CAMWIRE_DEBUG
@@ -45,20 +45,25 @@ CamwirePlus: Michele Adduci <adducimi@informatik.hu-berlin.de>
 #define DPRINTF(m) std::cout << m << std::endl;
 #endif
 
+/* If consistently used, it should be possible to change these return
+   codes without breaking anything: */
+const bool CAMWIRE_SUCCESS = true;
+const bool CAMWIRE_FAILURE = false;
+
 /* Function error status returns, for readability and
    maintainability: */
 #define ERROR_IF_NULL(p) \
-    if ((p)==NULL) {DPRINTF("Null pointer."); return(CAMERA_FAILURE);}
+    if ((p)==NULL) {DPRINTF("Null pointer."); return(CAMWIRE_FAILURE);}
 #define ERROR_IF_ZERO(v) \
-    if ((v)==0) {DPRINTF("Bad (zero) value."); return(CAMERA_FAILURE);}
+    if ((v)==0) {DPRINTF("Bad (zero) value."); return(CAMWIRE_FAILURE);}
 #define ERROR_IF_CAMWIRE_FAIL(r) \
-    if ((r)!=CAMERA_SUCCESS) \
+    if ((r)!=CAMWIRE_SUCCESS) \
       {DPRINTF("Camwire function call failed."); \
-       return(CAMERA_FAILURE);}
+       return(CAMWIRE_FAILURE);}
 #define ERROR_IF_DC1394_FAIL(r)	\
     if ((r)!= DC1394_SUCCESS) \
       {DPRINTF("dc1394 function call failed."); \
-       return(CAMERA_FAILURE);}
+       return(CAMWIRE_FAILURE);}
 
 
 #endif /* ndef CAMWIREMACROS_H */
