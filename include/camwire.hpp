@@ -47,19 +47,19 @@ namespace camwire
                the bus.  This function is equivalent to getCameraState()
                followed by initFromStruct().  The handle c_handle is
                obtained from CameraBusHandle.init(). */
-            int create(const Camwire_bus_handle_ptr &c_handle);
+            bool create(const Camwire_bus_handle_ptr &c_handle);
             /* Sets the camera to the given initialization settings and connects it
                to the bus.  The CameraState structure is returned unchanged.  The
                handle c_handle is obtained from CameraBusHandle.init(). */
-            int create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
+            bool create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
             /* Disconnects the camera from the bus and frees memory allocated in
                init() or initFromStruct().  All camera
                settings are lost.*/
             bool destroy(const Camwire_bus_handle_ptr &c_handle);
 
-            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            bool get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
 
-            int toggleStartStop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
+            bool set_run_stop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
         private:
             Camwire_id cam_id;
             Camwire_user_data user_data;

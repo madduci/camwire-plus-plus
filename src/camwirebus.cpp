@@ -58,7 +58,7 @@ camwire::camwirebus& camwire::camwirebus::operator=(const camwirebus &cb)
     return *this;
 }
 
-bool camwire::camwirebus::create()
+int camwire::camwirebus::create()
 {
     int camcount;
     dc1394camera_list_t *list = 0;
@@ -82,7 +82,7 @@ bool camwire::camwirebus::create()
         dc1394_lib = dc1394_new();
         if (!dc1394_lib)
         {
-            std::cout << "Failed to initialize dc1394 library" << std::endl;
+            DPRINTF("Failed to initialize dc1394 library");
             return CAMWIRE_FAILURE;
         }
         /* Make a list of the visible cameras: */
@@ -91,7 +91,7 @@ bool camwire::camwirebus::create()
         {
             dc1394_free(dc1394_lib);
             dc1394_lib = 0;
-            std::cout << "Error accessing camera" << std::endl;
+            DPRINTF("Error accessing camera");
             return CAMWIRE_FAILURE; 	/* Error accessing a camera.*/
         }
 
@@ -102,7 +102,7 @@ bool camwire::camwirebus::create()
             dc1394_free(dc1394_lib);
             dc1394_lib = 0;
             num_cams = 0;
-            std::cout << "No camera found." << std::endl;
+            DPRINTF("No camera found.");
             return CAMWIRE_FAILURE;
         }
 
@@ -138,7 +138,7 @@ bool camwire::camwirebus::create()
         dc1394_camera_free_list(list);
         dc1394_free(dc1394_lib);
         dc1394_lib = 0;
-        std::cout << "Failed to allocate camera handlers: " << ba.what() << std::endl;
+        DPRINTF("Failed to allocate camera handlers");
         return CAMWIRE_FAILURE;
     }
     catch(std::runtime_error &re)
@@ -146,17 +146,17 @@ bool camwire::camwirebus::create()
         dc1394_camera_free_list(list);
         dc1394_free(dc1394_lib);
         dc1394_lib = 0;
-        std::cout << "Error during the initialization of camera handlers: " << re.what() << std::endl;
+        DPRINTF("Error during the initialization of camera handlers");
         return CAMWIRE_FAILURE;
     }
 }
 
-bool camwire::camwirebus::exists()
+int camwire::camwirebus::exists()
 {
     return (dc1394_lib && num_cams > 0);
 }
 
-bool camwire::camwirebus::destroy()
+int camwire::camwirebus::destroy()
 {
     try
     {
@@ -186,12 +186,12 @@ bool camwire::camwirebus::destroy()
             dc1394_free(dc1394_lib);
             dc1394_lib = 0;
         }
-        std::cout << "Error during the releasing of camera handlers: " << re.what() << std::endl;
+        DPRINTF("Error during the releasing of camera handlers");
         return CAMWIRE_FAILURE;
     }
 }
 
-bool camwire::camwirebus::reset()
+int camwire::camwirebus::reset()
 {
     Camera_handle last_camera(new dc1394camera_t);
     if(exists())
@@ -209,7 +209,7 @@ bool camwire::camwirebus::reset()
         }
         catch(std::runtime_error &re)
         {
-            std::cout << "Error resetting the camera handlers: " << re.what() << std::endl;
+            DPRINTF("Error resetting the camera handlers");
             return CAMWIRE_FAILURE;
         }
     }
@@ -219,11 +219,11 @@ bool camwire::camwirebus::reset()
     return CAMWIRE_SUCCESS;
 }
 
-bool camwire::camwirebus::set_handle_userdata(const int num_camera, User_handle user_data)
+int camwire::camwirebus::set_handle_userdata(const int num_camera, User_handle user_data)
 {
     if(num_camera > handlers.size())
     {
-        std::cout << "Cannot set user data for camera " << num_camera << ": out of array" << std::endl;
+        DPRINTF("Cannot set user data for camera: out of array");
         return CAMWIRE_FAILURE;
     }
     try
@@ -237,7 +237,7 @@ bool camwire::camwirebus::set_handle_userdata(const int num_camera, User_handle 
     }
     catch(std::runtime_error &re)
     {
-        std::cout << "Failed to set user data for Camera handler: " << re.what() << std::endl;
+        DPRINTF("Failed to set user data for Camera handler");
         return CAMWIRE_FAILURE;
     }
 

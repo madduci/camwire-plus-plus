@@ -51,17 +51,17 @@ namespace camwire
                 If init() is called again, without calling release(), it
                 doesn't do anything else
             */
-            bool create();
+            int create();
             /* Returns true if a bus has been created succesfully */
-            bool exists();
+            int exists();
             /* Returns true if the memory allocations are freed completely */
-            bool destroy();
+            int destroy();
             /* Requests a reset of each bus which has cameras attached. */
-            bool reset();
+            int reset();
             /* Registers a pointer to a user data structure for the given camwire.
                Needed internally by Camwire++   -- To be changed
             */
-            bool set_handle_userdata(const int num_camera, User_handle user_data);
+            int set_handle_userdata(const int num_camera, User_handle user_data);
             /* Returns the number of camera discovered */
             int get_number_cameras();
             /* Returns the dc1394camera_t camera handler for the given camera number
