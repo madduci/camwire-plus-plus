@@ -51,27 +51,37 @@ namespace camwire
             /* Sets the camera to the given initialization settings and connects it
                to the bus.  The CameraState structure is returned unchanged.  The
                handle c_handle is obtained from CameraBusHandle.init(). */
-            int create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
+            int create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set);
             /* Disconnects the camera from the bus and frees memory allocated in
                init() or initFromStruct().  All camera
                settings are lost.*/
             int destroy(const Camwire_bus_handle_ptr &c_handle);
 
-            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
 
-            int set_run_stop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
+            int set_run_stop(const Camwire_bus_handle_ptr &c_handle, const int runsts = 0);
         private:
             Camwire_id cam_id;
             Camwire_user_data user_data;
             camwire(const camwire &cam);
             camwire& operator=(const camwire &cam);
+            /*
+             Does the actual work of camwire_create() and
+              camwire_create_from_struct(), after they have initialized the camera
+              to factory settings and sorted out where the start-up settings come
+              from.
+            */
+            int create(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set);
+
+
+
             /* Queries the camera for supported features and attempts to create
                sensible default settings.  Note that the camera itself is initialized
                to factory settings in the process. */
-            int generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            int generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
             /* Gets the camera's current settings from the state shadow or as
               physically read from the camera, depending on the state shadow flag. */
-            int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
             int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, const double multiple);
             /* Disconnects the camera from the bus and frees memory allocated in
               connect_cam().  The camera should be stopped before calling this

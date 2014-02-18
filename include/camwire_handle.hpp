@@ -200,6 +200,8 @@ namespace camwire
         int shadow;
     };
 
+    typedef std::shared_ptr<Camwire_state>  Camwire_state_ptr;
+
     /* Type for holding IEEE 1394 and IIDC DCAM hardware configuration data
        that the casual user probably does not want to know about.  See
        CONFIGURATION documentation for a detailed description of each
@@ -221,6 +223,8 @@ namespace camwire
         std::string dma_device_name;
     };
 
+    typedef std::shared_ptr<Camwire_conf>  Camwire_conf_ptr;
+
     /* A few unusual camera-specific capabilities.  This struct exists
        because we only want to ask the camera once what it is capable of,
        and remember the results.  The more usual camera capabilities are
@@ -236,6 +240,8 @@ namespace camwire
         Camwire_tiling tiling_value;
     };
 
+    typedef std::shared_ptr<Extra_features> Extra_features_ptr;
+
     /* Internal camera state parameters.  If the current_set->shadow flag is
        set then, wherever possible, settings are read from the current_set
        member, else they are read directly from the camera hardware.  Each
@@ -250,16 +256,15 @@ namespace camwire
                         before 63-bit overflow.*/
         int num_dma_buffers;   /* What capturing was set up with.*/
         double dma_timestamp;  /* Persistent record of last DMA buffer timestamp.*/
-        Extra_features extras;
+        Extra_features_ptr extras;
         dc1394featureset_t feature_set;
-        dc1394video_frame_t *frame;
-        Camwire_conf *config_cache;
-        Camwire_state *current_set;
+        std::shared_ptr<dc1394video_frame_t> frame;
+        Camwire_conf_ptr config_cache;
+        Camwire_state_ptr current_set;
     };
 
     typedef std::shared_ptr<dc1394camera_t>       Camera_handle;
     typedef std::shared_ptr<Camwire_user_data>    User_handle;
-    typedef std::shared_ptr<Camwire_state>        Camwire_state_ptr;
 
     struct Camwire_bus_handle
     {

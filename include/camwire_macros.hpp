@@ -50,8 +50,6 @@ const bool CAMWIRE_FAILURE = false;
 
 /* Function error status returns, for readability and
    maintainability: */
-#define ERROR_SMART_POINTER(p) \
-    if (!p) {DPRINTF("Pointer not initialized."); return(CAMWIRE_FAILURE);}
 #define ERROR_IF_NULL(p) \
     if ((p)==NULL) {DPRINTF("Null pointer."); return(CAMWIRE_FAILURE);}
 #define ERROR_IF_ZERO(v) \
