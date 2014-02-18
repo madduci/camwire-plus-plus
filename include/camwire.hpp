@@ -47,19 +47,19 @@ namespace camwire
                the bus.  This function is equivalent to getCameraState()
                followed by initFromStruct().  The handle c_handle is
                obtained from CameraBusHandle.init(). */
-            bool create(const Camwire_bus_handle_ptr &c_handle);
+            int create(const Camwire_bus_handle_ptr &c_handle);
             /* Sets the camera to the given initialization settings and connects it
                to the bus.  The CameraState structure is returned unchanged.  The
                handle c_handle is obtained from CameraBusHandle.init(). */
-            bool create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
+            int create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state &set);
             /* Disconnects the camera from the bus and frees memory allocated in
                init() or initFromStruct().  All camera
                settings are lost.*/
-            bool destroy(const Camwire_bus_handle_ptr &c_handle);
+            int destroy(const Camwire_bus_handle_ptr &c_handle);
 
-            bool get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
+            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
 
-            bool set_run_stop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
+            int set_run_stop(const Camwire_bus_handle_ptr &c_handle, const bool singleShotMode = false);
         private:
             Camwire_id cam_id;
             Camwire_user_data user_data;
@@ -72,8 +72,16 @@ namespace camwire
             /* Gets the camera's current settings from the state shadow or as
               physically read from the camera, depending on the state shadow flag. */
             int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state &set);
-            int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, double time);
-            void disconnect(const Camwire_bus_handle_ptr &c_handle);
+            int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, const double multiple);
+            /* Disconnects the camera from the bus and frees memory allocated in
+              connect_cam().  The camera should be stopped before calling this
+              function.
+            */
+            void disconnect_cam(const Camwire_bus_handle_ptr &c_handle);
+            /*
+              Frees the memory allocated in create().  Should only ever be called
+              from create() and camwire_destroy().  Assumes a valid c_handle.
+            */
             void free_internals(const Camwire_bus_handle_ptr &c_handle);
 
     };

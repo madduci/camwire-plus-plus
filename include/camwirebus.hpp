@@ -28,7 +28,7 @@
     cameras and providing handles to them.  The handles are all a user
     should need for implementation-independent access to all camera
     functions.  Functions to control individual cameras through their
-    handles are defined in the main Camera module.
+    handles are defined in the main Camwire module.
 
 Camwire++: Michele Adduci <info@micheleadduci.net>
 ***********************************************************************/
@@ -62,14 +62,15 @@ namespace camwire
                Needed internally by Camwire++   -- To be changed
             */
             int set_handle_userdata(const int num_camera, User_handle user_data);
+
             /* Returns the number of camera discovered */
             int get_number_cameras();
             /* Returns the dc1394camera_t camera handler for the given camera number
                Needed by many dc1394 functions in Camwire. */
-            Camwire_bus_handle_ptr get_camera(const int num_camera = 0);
+            Camwire_bus_handle_ptr get_bus_handler(const int num_camera = 0);
             /* Returns all the dc1394camera_t camera handlers
                Needed by many dc1394 functions in Camwire. */
-            std::vector<Camwire_bus_handle_ptr> get_camera_handlers();
+            std::vector<Camwire_bus_handle_ptr> get_bus_handlers();
 
         private:
             int num_cams;

@@ -33,8 +33,6 @@ Camwire++: Michele Adduci <info@micheleadduci.net>
 ***********************************************************************/
 #include <cstdlib>  /* calloc, malloc, free */
 #include <camwirebus.hpp>
-#include <iostream>
-#include <camwire_macros.hpp>
 
 camwire::camwirebus::camwirebus(): num_cams(0)
 {
@@ -248,7 +246,7 @@ int camwire::camwirebus::get_number_cameras()
     return num_cams;
 }
 
-camwire::Camwire_bus_handle_ptr camwire::camwirebus::get_camera(const int num_camera)
+camwire::Camwire_bus_handle_ptr camwire::camwirebus::get_bus_handler(const int num_camera)
 {
     if(num_camera > handlers.size())
         return 0;
@@ -257,7 +255,7 @@ camwire::Camwire_bus_handle_ptr camwire::camwirebus::get_camera(const int num_ca
     else return 0;
 }
 
-std::vector<camwire::Camwire_bus_handle_ptr> camwire::camwirebus::get_camera_handlers()
+std::vector<camwire::Camwire_bus_handle_ptr> camwire::camwirebus::get_bus_handlers()
 {
     return handlers;
 }

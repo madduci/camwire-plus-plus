@@ -36,8 +36,6 @@ Camwire++: Michele Adduci <info@micheleadduci.net>
 
 #include <iostream>
 
-#include <camwire.hpp>
-
 /* Print debugging error message: */
 #ifdef CAMWIRE_DEBUG
 #define DPRINTF(m) std::err << "In " << __FILE__ << " line "<< __LINE__ << " function " << __func__ << ": " << m << std::endl;
@@ -47,8 +45,8 @@ Camwire++: Michele Adduci <info@micheleadduci.net>
 
 /* If consistently used, it should be possible to change these return
    codes without breaking anything: */
-const int CAMWIRE_SUCCESS = 0;
-const int CAMWIRE_FAILURE = 1;
+const bool CAMWIRE_SUCCESS = true;
+const bool CAMWIRE_FAILURE = false;
 
 /* Function error status returns, for readability and
    maintainability: */

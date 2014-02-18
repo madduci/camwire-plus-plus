@@ -39,6 +39,7 @@ header file, to extract data representation from logic.
 
 #include <cinttypes>
 #include <memory>
+#include <camwire_macros.hpp>
 #include <dc1394/camera.h>  /* dc1394camera_t.*/
 //#include <ctime>          /* For struct timespec.*/
 
@@ -258,11 +259,44 @@ namespace camwire
 
     typedef std::shared_ptr<dc1394camera_t>       Camera_handle;
     typedef std::shared_ptr<Camwire_user_data>    User_handle;
+    typedef std::shared_ptr<Camwire_state>        Camwire_state_ptr;
 
     struct Camwire_bus_handle
     {
         Camera_handle camera;
         User_handle userdata;
+        /* Returns the dc1394camera_t camera handle for the given camwire
+           handle.  Needed by many dc1394 functions in Camwire. */
+        Camera_handle handle_get_camera()
+        {
+            return camera;
+        }
+
+        /* Returns a pointer to the user data structure for the given camwire
+           handle.  Needed for internal status maintenance in Camwire. */
+        User_handle handle_get_userdata()
+        {
+            return userdata;
+        }
+
+        int handle_set_userdata(User_handle user_data)
+        {
+            try
+            {
+                if(userdata)
+                {
+                    userdata = user_data;
+                    return CAMWIRE_SUCCESS;
+                }
+                else return CAMWIRE_FAILURE;
+            }
+            catch(std::runtime_error &re)
+            {
+                DPRINTF("Failed to set user data for Camera handler");
+                return CAMWIRE_FAILURE;
+            }
+        }
+
     };
 
     typedef std::shared_ptr<Camwire_bus_handle>   Camwire_bus_handle_ptr;
