@@ -63,5 +63,7 @@ const bool CAMWIRE_FAILURE = false;
       {DPRINTF("dc1394 function call failed."); \
        return(CAMWIRE_FAILURE);}
 
+#define CONFFILE_EXTENSION		".conf"
+#define ENVIRONMENT_VAR_CONF	"CAMWIRE_CONF"
 
 #endif /* ndef CAMWIREMACROS_H */

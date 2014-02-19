@@ -88,7 +88,14 @@ namespace camwire
             /* Queries the camera for supported features and attempts to create
                sensible default settings.  Note that the camera itself is initialized
                to factory settings in the process. */
-            int generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
+            int generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &conf);
+            /*
+              Queries the camera for supported features and attempts to create
+              sensible default settings.  Note that the camera itself is initialized
+              to factory settings in the process.  Returns CAMWIRE_SUCCESS on
+              success or CAMWIRE_FAILURE on failure.
+            */
+            int generate_default_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
             /* Gets the camera's current settings from the state shadow or as
               physically read from the camera, depending on the state shadow flag. */
             int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
@@ -114,6 +121,60 @@ namespace camwire
               stream pointer creation was successful or 0 on failure.
             */
             int find_conf_file(const Camwire_id &id, std::shared_ptr<FILE> &conffile);
+            /*
+              Attempts to open the named configuration file for reading after
+              appending the configuration filename extension.  Returns the stream
+              pointer on success or 0 on failure.
+            */
+            int open_named_conf_file(const std::string &path, const std::string &filename, std::shared_ptr<FILE> &conffile);
+            /*
+              Reads configuration from the given conf file into the given
+              configuration structure. Returns CAMWIRE_SUCCESS on success or
+              CAMWIRE_FAILURE on failure.
+            */
+            int read_conf_file(const std::shared_ptr<FILE> &conffile, Camwire_conf_ptr &cfg);
+            /* Writes the static configuration settings as obtained from
+               camwire_get_config() to the given file.  The print format is the same
+               as that expected by camwire_get_config() when it reads configuration
+               files.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure.*/
+            int write_config_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_conf_ptr &cfg);
+            int write_config_to_output(const Camwire_conf_ptr &cfg);
+            /*
+              Returns 1 (true) if the IEEE 1394 image format is a fixed image size,
+              or 0 (false) otherwise.
+            */
+            int fixed_image_size(const dc1394video_mode_t video_mode);
+            /*
+              Returns 1 (true) if the IEEE 1394 image format is a variable image
+              size, or 0 (false) otherwise.
+            */
+            int variable_image_size(const dc1394video_mode_t video_mode);
+            /*
+              Returns the video frame rate for the given libdc1394 index, or -1.0 if
+              it is not recognized.
+            */
+            double convert_index2framerate(const dc1394framerate_t frame_rate_index);
+            /*
+              Returns the nearest valid libdc1394 index for the given video frame
+              rate.  The list of supported frame rates must not be empty.
+            */
+            int convert_framerate2index(const double frame_rate, const dc1394framerates_t *framerate_list);
+            /*
+              Returns the pixel coding given the libdc1394 mode in Formats 0, 1 and 2.
+            */
+            Camwire_pixel convert_videomode2pixelcoding(const dc1394video_mode_t video_mode);
+            /*
+              Returns the pixel coding given the libdc1394 colour coding ID in
+              Format 7.
+            */
+            Camwire_pixel convert_colorid2pixelcoding(const dc1394color_coding_t color_id);
+            /*
+              Returns the pixel tiling given the libdc1394 colour coding ID in
+              Format 7.
+            */
+            Camwire_tiling convert_filterid2pixeltiling(const dc1394color_filter_t filter_id);
+
     };
 
 }

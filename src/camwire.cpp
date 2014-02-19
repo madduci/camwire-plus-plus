@@ -2,8 +2,10 @@
 
 #include <camwire_config.hpp>
 #include <camwire.hpp>
-
 #include <cstring>
+#include <unistd.h>         //sleep function
+#include <cmath>            //log function
+#include <cfloat>           //definition of DBL_MAX
 
 camwire::camwire::camwire()
 {
@@ -103,9 +105,228 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
     }
 }
 
-int camwire::camwire::generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
+int camwire::camwire::generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &conf)
 {
     return CAMWIRE_SUCCESS;
+}
+
+int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
+{
+    try
+    {
+        /* Initialize the camera to factory settings: */
+        ERROR_IF_NULL(c_handle);
+        /* dc1394_camera_reset() does not work on all cameras, so we are
+           lenient on the test: */
+        int dc1394_return = dc1394_camera_reset(c_handle->camera.get());
+        if (dc1394_return != DC1394_SUCCESS)
+        {
+            DPRINTF("Warning: dc1394_camera_reset() failed.  Continuing configuration, "
+            "but camera may not be properly initialized.");
+            sleep(1);  /* Increase chances that camera may recover.*/
+        }
+
+        dc1394video_mode_t video_mode = get_1394_video_mode(c_handle.get());
+        dc1394color_coding_t color_id;
+        dc1394framerates_t supported_fr;
+        dc1394feature_info_t capability;
+        dc1394bool_t on_off;
+        uint32_t num_packets = 0;
+        /* Merging the functions, reducing the number of checks on variables */
+        /* Format and mode-specific frame dimensions and pixel coding: */
+        if(fixed_image_size(video_mode))    /* Formats 0-2.*/
+        {
+            set->left = 0;  /* pixels */
+            set->top = 0;   /* pixels */
+            ERROR_IF_DC1394_FAIL(
+                        dc1394_get_image_size_from_video_mode(c_handle->camera.get(),
+                                                             video_mode,
+                                                             (uint32_t *)&set->width,
+                                                             (uint32_t *)&set->height));
+            set->coding = convert_videomode2pixelcoding(video_mode);
+
+            /* Determine the maximum supported framerate in this mode and
+               format: */
+            ERROR_IF_DC1394_FAIL(
+                    dc1394_video_get_supported_framerates(c_handle->camera.get(),
+                                      video_mode,
+                                      &supported_fr));
+            if(supported_fr.num == 0)
+            {
+                DPRINTF("dc1394_video_get_supported_framerates() returned no "
+                            "framerates.");
+                return CAMWIRE_FAILURE;
+            }
+
+            set->frame_rate = 0;
+            double fr = 0.0f;
+            for (int f=0; f < supported_fr.num; ++f)
+            {
+                fr = convert_index2framerate(supported_fr.framerates[f]);
+                if (fr < 0.0f)
+                {
+                    DPRINTF("convert_index2framerate() failed.");
+                    return CAMWIRE_FAILURE; 	/* Invalid index.*/
+                }
+                if (fr > set->frame_rate)  set->frame_rate = fr;
+            }
+        }
+        else if(variable_image_size(video)) /* Format 7.*/
+        {
+            ERROR_IF_DC1394_FAIL(
+               dc1394_format7_get_image_position(c_handle->camera.get(),
+                                video_mode,
+                                (uint32_t *)&set->left,
+                                (uint32_t *)&set->top));
+            ERROR_IF_DC1394_FAIL(
+               dc1394_format7_get_image_size(c_handle->camera.get(),
+                                video_mode,
+                                (uint32_t *)&set->width,
+                                (uint32_t *)&set->height));
+            ERROR_IF_DC1394_FAIL(
+               dc1394_format7_get_color_coding(
+                c_handle->camera.get(),
+                video_mode,
+                &color_id));
+            set->coding = convert_colorid2pixelcoding(color_id);
+
+            /* Determine the maximum supported framerate in this mode and
+               format: */
+
+            /* PACKET_PER_FRAME_INQ depends on BYTE_PER_PACKET which in turn
+               depends on IMAGE_SIZE and COLOR_CODING_ID.  Since we are not
+               changing these registers, it is safe to use the value
+               returned by get_num_packets(): */
+            ERROR_IF_CAMWIRE_FAIL(get_numpackets(c_handle, num_packets));
+            set->frame_rate = convert_numpackets2framerate(c_handle, num_packets);
+        }
+        else
+        {
+            DPRINTF("Camera's format is not supported");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Get the shutter speed and try to fit it into one frame period: */
+        if(set->frame_rate != 0)
+            set->shutter = 0.5/set->frame_rate; /* Seconds, default.*/
+
+        capability.id = DC1394_FEATURE_SHUTTER;
+        ERROR_IF_DC1394_FAIL(
+            dc1394_feature_get(c_handle->camera.get(),
+                       &capability));
+
+        double max_shutter, min_shutter;
+        Camwire_conf_ptr config(new Camwire_conf);
+        if(feature_is_usable(capability))
+        {
+            ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+            set->shutter = config->exposure_offset + capability.value * config->exposure_quantum;
+            max_shutter = config->exposure_quantum * ((unsigned long int)(1.0 / (set->frame_rate * config->exposure_quantum)));
+
+            if(set->shutter > max_shutter)
+                set->shutter = max_shutter;
+
+            min_shutter = config->exposure_offset + capability.min * config->exposure_quantum;
+
+            if(set->shutter < min_shutter)
+                set->shutter = min_shutter;
+        }
+        else
+            DPRINTF("Camera reported no usable shutter");
+
+        /* Format and mode-independent settings: */
+        set->external_trigger = 0;  /* Flag */
+        set->trigger_polarity = 1;  /* Flag, default */
+        capability.id = DC1394_FEATURE_TRIGGER;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        if (feature_is_usable(capability))
+        {
+            if (capability.trigger_polarity == DC1394_TRIGGER_ACTIVE_LOW)
+                set->trigger_polarity = 0;
+            else
+                set->trigger_polarity = 1;
+        }
+
+        /* Get the factory gain and set our normalized gain accordingly: */
+        set->gain = 0.0;			/* Units, default.*/
+        capability.id = DC1394_FEATURE_GAIN;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        if (feature_is_usable(capability))
+        {
+            if (capability.max != capability.min)
+                set->gain = (double)(capability.value - capability.min) /
+                (capability.max - capability.min);
+        }
+        else
+            DPRINTF("Camera reported no usable gain.");
+
+        /* Get the factory brightness and set our normalized brightness
+           accordingly: */
+        set->brightness = 0.0;		/* Units, default.*/
+        capability.id = DC1394_FEATURE_BRIGHTNESS;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        if (feature_is_usable(capability))
+        {
+            set->brightness = 2.0*(double)(capability.value - capability.min) /
+                (capability.max - capability.min) - 1.0;
+        }
+        else
+            DPRINTF("Camera reported no usable brightness.");
+
+        /* Get the factory white balance and set our normalized levels
+           accordingly: */
+        set->white_balance[0] = set->white_balance[1] = 0.0; 	/* Units, default.*/
+        capability.id = DC1394_FEATURE_WHITE_BALANCE;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        if (feature_is_usable(capability))
+        {
+            if (capability.max != capability.min)
+            {
+                set->white_balance[0] = (double)(capability.BU_value - capability.min) /
+                (capability.max - capability.min);
+                set->white_balance[1] = (double)(capability.RV_value - capability.min) /
+                (capability.max - capability.min);
+            }
+        }
+        else
+            DPRINTF("Camera reported no usable white balance.");
+
+        /* Enable colour correction by default if the camera supports it,
+           and get the factory colour correction coefficients: */
+        int32_t coef_reg[9];
+        set->colour_corr = probe_camera_colour_correction(c_handle);
+        if (set->colour_corr) 		/* Flag, on by default.*/
+        {
+        ERROR_IF_DC1394_FAIL(dc1394_avt_get_color_corr(c_handle->camera.get(),
+                          &on_off,
+                          &coef_reg[0], &coef_reg[1], &coef_reg[2],
+                          &coef_reg[3], &coef_reg[4], &coef_reg[5],
+                          &coef_reg[6], &coef_reg[7], &coef_reg[8]));
+            convert_avtvalues2colourcoefs(coef_reg, set->colour_coef);
+        }
+        else
+            DPRINTF("Camera reported no usable colour correction.");
+
+        /* Enable gamma if the camera supports it: */
+        set->gamma = probe_camera_gamma(c_handle);  /* Flag.*/
+        if (!set->gamma)
+            DPRINTF("Camera reported no usable gamma correction.");
+
+
+        /* Other defaults: */
+        set->tiling = probe_camera_tiling(c_handle);  /* Pattern.*/
+        set->num_frame_buffers = 10;        /* Frames.*/
+        set->single_shot = 0;               /* Flag.*/
+        set->running = 0;                   /* Flag.*/
+        set->shadow = 1;                    /* Flag.*/
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to generate default settings");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
@@ -271,17 +492,395 @@ int camwire::camwire::find_conf_file(const Camwire_id &id, std::shared_ptr<FILE>
 {
     try
     {
-        if(!conffile)
-            conffile = std::shared_ptr<FILE>(open_named_conf_file(0, id->chip));
-
         std::string env_directory;
-        conffile
-        return CAMWIRE_SUCCESS;
+
+        if(open_named_conf_file(0, id.chip, conffile) == CAMWIRE_SUCCESS)
+            return CAMWIRE_SUCCESS;
+
+        if(open_named_conf_file(0, id.model, conffile) == CAMWIRE_SUCCESS)
+            return CAMWIRE_SUCCESS;
+
+        if(open_named_conf_file(0, id.vendor, conffile) == CAMWIRE_SUCCESS)
+            return CAMWIRE_SUCCESS;
+
+        env_directory = getenv(ENVIRONMENT_VAR_CONF);
+        if(env_directory.length() > 0)
+        {
+            if(open_named_conf_file(env_directory, id.chip, conffile) == CAMWIRE_SUCCESS)
+                return CAMWIRE_SUCCESS;
+
+            if(open_named_conf_file(env_directory, id.model, conffile) == CAMWIRE_SUCCESS)
+                return CAMWIRE_SUCCESS;
+
+            if(open_named_conf_file(env_directory, id.vendor, conffile) == CAMWIRE_SUCCESS)
+                return CAMWIRE_SUCCESS;
+        }
+
+        DPRINTF("No configuration file found");
+        return CAMWIRE_FAILURE;
     }
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to find configuration file");
         return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::open_named_conf_file(const std::string &path, const std::string &filename, std::shared_ptr<FILE> &conffile)
+{
+    try
+    {
+        std::string conffilename("");
+        if(path.length() > 0)
+        {
+            conffilename = path;
+            if(conffilename[conffilename.length() - 1] != '/')
+                conffilename += "/";
+        }
+
+        conffilename += filename + CONFFILE_EXTENSION;
+        /* Check if previously pointing to other data and release it */
+        if(conffile)
+            conffile.reset();
+
+        conffile = std::shared_ptr<FILE>(fopen(conffilename.c_str(), "r"));
+        if(conffile)
+            return CAMWIRE_SUCCESS;
+        else
+            return CAMWIRE_FAILURE;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to open configuration file");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+/* Keeping C-style I/O operations just for compatibility with Camwire original code */
+/* This will be in future converted into C++ style, using fstream: it's cleaner */
+int camwire::camwire::read_conf_file(const std::shared_ptr<FILE> &conffile, Camwire_conf_ptr &cfg)
+{
+    int scan_result = 0, speed = 0, num_bits_set = 0;
+    try
+    {
+        scan_result =
+        fscanf(conffile.get(),
+               "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
+               "  bus_speed:           %d\n"
+               "  format:              %d\n"
+               "  mode:                %d\n"
+               "  max_packets:         %d\n"
+               "  min_pixels:          %d\n"
+               "  trig_setup_time:     %lf\n"
+               "  exposure_quantum:    %lf\n"
+               "  exposure_offset:     %lf\n"
+               "  line_transfer_time:  %lf\n"
+               "  transmit_setup_time: %lf\n"
+               "  transmit_overlap:    %d\n"
+               "  drop_frames:         %d\n"
+               "  dma_device_name:     %[^\n]s",
+               /* FIXME: bus_speed will soon disappear from config: */
+               &cfg->bus_speed,
+               &cfg->format,
+               &cfg->mode,
+               &cfg->max_packets,
+               &cfg->min_pixels,
+               &cfg->trig_setup_time,
+               &cfg->exposure_quantum,
+               &cfg->exposure_offset,
+               &cfg->line_transfer_time,
+               &cfg->transmit_setup_time,
+               &cfg->transmit_overlap,
+               &cfg->drop_frames,
+               &cfg->dma_device_name);
+
+        if (scan_result == EOF || scan_result < 12)
+        {
+            DPRINTF("fscanf() failed reading configuration file.");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* FIXME: bus_speed will soon disappear from config; no need to check: */
+        /* Ensure that bus_speed is one of 100, 200, 400...: */
+        num_bits_set = 0;
+        speed = cfg->bus_speed/100;
+        while (speed != 0)
+        {
+            if ((speed & 1) != 0)  ++num_bits_set;
+            speed >>= 1;
+        }
+
+        if (cfg->bus_speed%100 != 0 || num_bits_set != 1)
+        {
+            DPRINTF("Invalid bus_speed in configuration file read.");
+            return CAMWIRE_FAILURE;
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to read configuration file");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+/* Keeping C-style I/O operations just for compatibility with Camwire original code */
+/* This will be in future converted into C++ style, using fstream: it's cleaner */
+int camwire::camwire::write_config_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_conf_ptr &cfg)
+{
+    int print_result = 0;
+    try
+    {
+        print_result = fprintf(outfile.get(),
+                   "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
+                   "  bus_speed:           %d\n"
+                   "  format:              %d\n"
+                   "  mode:                %d\n"
+                   "  max_packets:         %d\n"
+                   "  min_pixels:          %d\n"
+                   "  trig_setup_time:     %g\n"
+                   "  exposure_quantum:    %g\n"
+                   "  exposure_offset:     %g\n"
+                   "  line_transfer_time:  %g\n"
+                   "  transmit_setup_time: %g\n"
+                   "  transmit_overlap:    %d\n"
+                   "  drop_frames:         %d\n"
+                   "  dma_device_name:     %s\n",
+                   cfg->bus_speed,
+                   cfg->format,
+                   cfg->mode,
+                   cfg->max_packets,
+                   cfg->min_pixels,
+                   cfg->trig_setup_time,
+                   cfg->exposure_quantum,
+                   cfg->exposure_offset,
+                   cfg->line_transfer_time,
+                   cfg->transmit_setup_time,
+                   cfg->transmit_overlap,
+                   cfg->drop_frames,
+                   cfg->dma_device_name.c_str());
+
+        if (print_result < 1)
+        {
+            return CAMWIRE_FAILURE;
+        }
+        fflush(outfile.get());
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to write config file to disk");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::write_config_to_output(const Camwire_conf_ptr &cfg)
+{
+    try
+    {
+        std::cout <<
+                   "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
+                   "  bus_speed:           "<< cfg->bus_speed << std::endl <<
+                   "  format:              "<< cfg->format << std::endl <<
+                   "  mode:                "<< cfg->mode << std::endl <<
+                   "  max_packets:         "<< cfg->max_packets << std::endl <<
+                   "  min_pixels:          "<< cfg->min_pixels << std::endl <<
+                   "  trig_setup_time:     "<< cfg->trig_setup_time << std::endl <<
+                   "  exposure_quantum:    "<< cfg->exposure_quantum << std::endl <<
+                   "  exposure_offset:     "<< cfg->exposure_offset << std::endl <<
+                   "  line_transfer_time:  "<< cfg->line_transfer_time << std::endl <<
+                   "  transmit_setup_time: "<< cfg->transmit_setup_time << std::endl <<
+                   "  transmit_overlap:    "<< cfg->transmit_overlap << std::endl <<
+                   "  drop_frames:         "<< cfg->bus_speed << std::endl <<
+                   "  dma_device_name:     "<< cfg->dma_device_name << std::endl << std::endl;
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to write config file to disk");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::fixed_image_size(const dc1394video_mode_t video_mode)
+{
+    return (dc1394_is_video_mode_scalable(video_mode) == DC1394_FALSE &&
+            dc1394_is_video_mode_still_image(video_mode) == DC1394_FALSE);
+}
+
+int camwire::camwire::variable_image_size(const dc1394video_mode_t video_mode)
+{
+    return (dc1394_is_video_mode_scalable(video_mode) == DC1394_TRUE &&
+            dc1394_is_video_mode_still_image(video_mode) == DC1394_FALSE);
+}
+
+double camwire::camwire::convert_index2framerate(const dc1394framerate_t frame_rate_index)
+{
+    int dc1394_return = 0;
+    float frame_rate = 0.0;
+
+    try
+    {
+        dc1394_return = dc1394_framerate_as_float(frame_rate_index, &frame_rate);
+        if (dc1394_return == DC1394_SUCCESS)
+            return (double)frame_rate;
+        else
+            return -1.0;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert index to framerate");
+        return -1.0;
+    }
+}
+
+int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1394framerates_t *framerate_list)
+{
+    try
+    {
+        float min_fr;
+        double fps, log2f, best, diff;
+        int nearest_index, r, rate_index;
+
+        dc1394_framerate_as_float(DC1394_FRAMERATE_MIN, &min_fr);  /* 1.875.*/
+        if (frame_rate > 0.0)
+            fps = frame_rate;
+        else
+            fps = min_fr;
+
+        log2f = log(fps/min_fr)/log(2);  /* 1.875->0, 3.75->1, 7.5->2, etc.*/
+        best = DBL_MAX;
+        nearest_index = -1;
+        for (r=0; r<framerate_list->num; ++r)
+        {
+            rate_index = framerate_list->framerates[r];
+            diff = fabs(log2f - rate_index + DC1394_FRAMERATE_MIN);
+            if (diff < best)
+            {
+                best = diff;
+                nearest_index = rate_index;
+            }
+        }
+        if (nearest_index >= 0)
+            return nearest_index;
+        else
+            return 0;  /* Empty list?*/
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert framerate to index");
+        return 0;
+    }
+}
+
+camwire::Camwire_pixel camwire::camwire::convert_videomode2pixelcoding(const dc1394video_mode_t video_mode)
+{
+    switch (video_mode)
+    {
+        case DC1394_VIDEO_MODE_160x120_YUV444:
+            return CAMWIRE_PIXEL_YUV444;  /* 24 bits/pixel.*/
+            break;
+        case DC1394_VIDEO_MODE_320x240_YUV422:
+        case DC1394_VIDEO_MODE_640x480_YUV422:
+        case DC1394_VIDEO_MODE_800x600_YUV422:
+        case DC1394_VIDEO_MODE_1024x768_YUV422:
+        case DC1394_VIDEO_MODE_1280x960_YUV422:
+        case DC1394_VIDEO_MODE_1600x1200_YUV422:
+            return CAMWIRE_PIXEL_YUV422;  /* 16 bits/pixel.*/
+            break;
+        case DC1394_VIDEO_MODE_640x480_YUV411:
+            return CAMWIRE_PIXEL_YUV411;  /* 12 bits/pixel.*/
+            break;
+        case DC1394_VIDEO_MODE_640x480_RGB8:
+        case DC1394_VIDEO_MODE_800x600_RGB8:
+        case DC1394_VIDEO_MODE_1024x768_RGB8:
+        case DC1394_VIDEO_MODE_1280x960_RGB8:
+        case DC1394_VIDEO_MODE_1600x1200_RGB8:
+            return CAMWIRE_PIXEL_RGB8;  /* 24 bits/pixel.*/
+            break;
+        case DC1394_VIDEO_MODE_640x480_MONO8:
+        case DC1394_VIDEO_MODE_800x600_MONO8:
+        case DC1394_VIDEO_MODE_1024x768_MONO8:
+        case DC1394_VIDEO_MODE_1280x960_MONO8:
+        case DC1394_VIDEO_MODE_1600x1200_MONO8:
+            return CAMWIRE_PIXEL_MONO8;  /* 8 bits/pixel.*/
+            break;
+        case DC1394_VIDEO_MODE_640x480_MONO16:
+        case DC1394_VIDEO_MODE_800x600_MONO16:
+        case DC1394_VIDEO_MODE_1024x768_MONO16:
+        case DC1394_VIDEO_MODE_1280x960_MONO16:
+        case DC1394_VIDEO_MODE_1600x1200_MONO16:
+            return CAMWIRE_PIXEL_MONO16;  /* 16 bits/pixel.*/
+            break;
+        default:
+            return CAMWIRE_PIXEL_INVALID;  /* Unknown.*/
+            break;
+    }
+}
+
+camwire::Camwire_pixel camwire::camwire::convert_colorid2pixelcoding(const dc1394color_coding_t color_id)
+{
+    switch (color_id)
+    {
+        case DC1394_COLOR_CODING_MONO8:
+            return CAMWIRE_PIXEL_MONO8;  /* 8 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_YUV411:
+            return CAMWIRE_PIXEL_YUV411;  /* 12 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_YUV422:
+            return CAMWIRE_PIXEL_YUV422;  /* 16 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_YUV444:
+            return CAMWIRE_PIXEL_YUV444;  /* 24 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_RGB8:
+            return CAMWIRE_PIXEL_RGB8;  /* 24 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_MONO16:
+            return CAMWIRE_PIXEL_MONO16;  /* 16 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_RGB16:
+            return CAMWIRE_PIXEL_RGB16;  /* 48 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_MONO16S:
+            return CAMWIRE_PIXEL_MONO16S;  /* 16 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_RGB16S:
+            return CAMWIRE_PIXEL_RGB16S;  /* 48 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_RAW8:
+            return CAMWIRE_PIXEL_RAW8;  /* 8 bits/pixel.*/
+            break;
+        case DC1394_COLOR_CODING_RAW16:
+            return CAMWIRE_PIXEL_RAW16;  /* 16 bits/pixel.*/
+            break;
+        default:
+            return CAMWIRE_PIXEL_INVALID;  /* Not supported.*/
+            break;
+    }
+}
+
+camwire::Camwire_tiling camwire::camwire::convert_filterid2pixeltiling(const dc1394color_filter_t filter_id)
+{
+    switch (filter_id)
+    {
+        case DC1394_COLOR_FILTER_RGGB:
+            return CAMWIRE_TILING_RGGB;
+            break;
+        case DC1394_COLOR_FILTER_GBRG:
+            return CAMWIRE_TILING_GBRG;
+            break;
+        case DC1394_COLOR_FILTER_GRBG:
+            return CAMWIRE_TILING_GRBG;
+            break;
+        case DC1394_COLOR_FILTER_BGGR:
+            return CAMWIRE_TILING_BGGR;
+            break;
+        default:
+            return CAMWIRE_TILING_INVALID;  /* Not supported.*/
+            break;
     }
 }
 
@@ -358,11 +957,11 @@ int camwire::camwire::get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_
         if (!internal_status || !internal_status->camera_connected)
         {  /* Camera does not exit.*/
 
-           return generate_default_config(c_handle, set);
+           return generate_default_settings(c_handle, set);
         }
         else
         {  /* Camera exists.*/
-           return generate_default_config(c_handle, set);
+           return generate_default_settings(c_handle, set);
         }
     }
     catch(std::runtime_error &re)
@@ -508,7 +1107,8 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
         else
         { 	/* Read a conf file and cache it.*/
             ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
-            std::shared_ptr<FILE> conffile(find_conf_file(identifier));
+            std::shared_ptr<FILE> conffile(new FILE);
+            ERROR_IF_CAMWIRE_FAIL(find_conf_file(identifier, conffile));
             if (conffile)
             {
                 ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
@@ -529,7 +1129,7 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
                 "----------------------------------------------------------------" << std::endl;
 
                     ERROR_IF_CAMWIRE_FAIL(
-                    camwire_write_config_to_file(stdout, cfg));
+                    write_config_to_output(cfg));
 
                 std::cout << std::endl <<
                 "----------------------------------------------------------------\n"
