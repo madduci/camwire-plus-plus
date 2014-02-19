@@ -60,7 +60,20 @@ namespace camwire
             int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
 
             int set_run_stop(const Camwire_bus_handle_ptr &c_handle, const int runsts = 0);
-        private:
+            /* Gets the camera and its bus's static configuration settings for
+               initialization from a configuration file.  They are bus-specific
+               hardware parameters that the casual user need not know or care about.
+               If a configuration file does not exist, an error message is printed which includes a
+               best-guess default configuration. */
+            int get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg);
+            /* Fills in the given camwire identifier structure.
+               The identifier is uniquely and permanently associated with the camera
+               hardware, such as might be obtained from configuration ROM data.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
+
+        /* Set to protected in case of Subclassing */
+        protected:
             Camwire_id cam_id;
             Camwire_user_data user_data;
             camwire(const camwire &cam);
@@ -72,9 +85,6 @@ namespace camwire
               from.
             */
             int create(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set);
-
-
-
             /* Queries the camera for supported features and attempts to create
                sensible default settings.  Note that the camera itself is initialized
                to factory settings in the process. */
@@ -93,7 +103,17 @@ namespace camwire
               from create() and camwire_destroy().  Assumes a valid c_handle.
             */
             void free_internals(const Camwire_bus_handle_ptr &c_handle);
-
+            /*
+              Returns true if the configuration cache exists and has been
+              initialized.  It is assumed that User_handle exists and
+              is not 0.
+            */
+            int config_cache_exists(const User_handle &internal_status);
+            /*
+              Attempts to open a configuration file for reading.  Returns 1 if
+              stream pointer creation was successful or 0 on failure.
+            */
+            int find_conf_file(const Camwire_id &id, std::shared_ptr<FILE> &conffile);
     };
 
 }

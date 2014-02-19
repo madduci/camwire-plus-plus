@@ -68,10 +68,11 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
             free_internals(c_handle);
             return CAMWIRE_FAILURE;
         }
-        memcpy(internal_status->current_set.get(), set.get(), sizeof(Camwire_state));
+
+        internal_status->current_set = set;
 
         /* Get 1394-specific hardware configuration: */
-        if (camwire_get_config(c_handle, &config) != CAMWIRE_SUCCESS)
+        if (get_config(c_handle, config) != CAMWIRE_SUCCESS)
         {
             DPRINTF("camwire_get_config() failed.");
             free_internals(c_handle);
@@ -118,7 +119,7 @@ int camwire::camwire::get_current_settings(const Camwire_bus_handle_ptr &c_handl
         ERROR_IF_NULL(shadow_state);
         if(shadow_state->shadow)
         {
-            memcpy(&set, shadow_state.get(), sizeof(Camwire_state));  /* Shortcut.*/
+            set = shadow_state;
             /* One_Shot register self-clears after transmission, hence we
                don't know if camera is still runnning: */
             if (shadow_state->running && shadow_state->single_shot)
@@ -210,7 +211,7 @@ void camwire::camwire::disconnect_cam(const Camwire_bus_handle_ptr &c_handle)
 {    
     try
     {
-        User_handle internal_status(c_handle->userdata);
+        User_handle internal_status = c_handle->userdata;
         if (internal_status)
         {
             if (internal_status->camera_connected)
@@ -234,10 +235,9 @@ void camwire::camwire::disconnect_cam(const Camwire_bus_handle_ptr &c_handle)
 
 void camwire::camwire::free_internals(const Camwire_bus_handle_ptr &c_handle)
 {
-    User_handle internal_status(new Camwire_user_data);
     try
     {
-        User_handle internal_status(c_handle->userdata);
+        User_handle internal_status = c_handle->userdata;
         if (internal_status)
         {
             if (internal_status->frame_lock)
@@ -252,6 +252,36 @@ void camwire::camwire::free_internals(const Camwire_bus_handle_ptr &c_handle)
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to free internal values");
+    }
+}
+
+int camwire::camwire::config_cache_exists(const User_handle &internal_status)
+{
+    #ifdef CAMWIRE_DEBUG
+    if (!internal_status)
+    DPRINTF("Internal error: User_handle internal_status pointer is 0.");
+    #endif
+    if(internal_status->config_cache)
+        return CAMWIRE_SUCCESS;
+    else
+        return CAMWIRE_FAILURE;
+}
+
+int camwire::camwire::find_conf_file(const Camwire_id &id, std::shared_ptr<FILE> &conffile)
+{
+    try
+    {
+        if(!conffile)
+            conffile = std::shared_ptr<FILE>(open_named_conf_file(0, id->chip));
+
+        std::string env_directory;
+        conffile
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to find configuration file");
+        return CAMWIRE_FAILURE;
     }
 }
 
@@ -321,12 +351,10 @@ int camwire::camwire::destroy(const Camwire_bus_handle_ptr &c_handle)
 
 int camwire::camwire::get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
 {
-    User_handle internal_status;
-
     try
     {
         ERROR_IF_NULL(c_handle);
-        internal_status.reset(c_handle->userdata.get());
+        User_handle internal_status = c_handle->userdata;
         if (!internal_status || !internal_status->camera_connected)
         {  /* Camera does not exit.*/
 
@@ -352,9 +380,9 @@ int camwire::camwire::set_run_stop(const Camwire_bus_handle_ptr &c_handle, const
         dc1394bool_t one_shot_set;
 
         ERROR_IF_NULL(c_handle);
-        User_handle internal_status(c_handle->userdata);
+        User_handle internal_status = c_handle->userdata;
         ERROR_IF_NULL(internal_status);
-        Camwire_state_ptr shadow_state (internal_status->current_set);
+        Camwire_state_ptr shadow_state = internal_status->current_set;
         ERROR_IF_NULL(shadow_state);
         if (shadow_state->shadow)
         {
@@ -460,6 +488,95 @@ int camwire::camwire::set_run_stop(const Camwire_bus_handle_ptr &c_handle, const
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to start/stop camera");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_id identifier;
+
+        /* Use cached config if it is available: */
+        if(internal_status && config_cache_exists(internal_status))
+        {
+            cfg = internal_status->config_cache;
+        }
+        else
+        { 	/* Read a conf file and cache it.*/
+            ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
+            std::shared_ptr<FILE> conffile(find_conf_file(identifier));
+            if (conffile)
+            {
+                ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
+                fclose(conffile.get());
+                if (internal_status && internal_status->config_cache)
+                { /* A camera has been created (not strictly necessary).*/
+                    internal_status->config_cache = cfg;
+                }
+            }
+            else
+            {
+                std::cerr << std::endl <<
+                "Camwire could not find a hardware configuration file.\n"
+                "Generating a default configuration..." << std::endl;
+                    ERROR_IF_CAMWIRE_FAIL(
+                    generate_default_config(c_handle, cfg));
+                std::cout << std::endl <<
+                "----------------------------------------------------------------" << std::endl;
+
+                    ERROR_IF_CAMWIRE_FAIL(
+                    camwire_write_config_to_file(stdout, cfg));
+
+                std::cout << std::endl <<
+                "----------------------------------------------------------------\n"
+                "\n"
+                "This is a best guess of the camera and its bus's hardware\n"
+                "configuration.  See README_conf in the Camwire distribution for\n"
+                "details.\n\n"
+                "To create a configuration file, copy the text between (but not\n"
+                "including) the ----- lines into a file (and edit as needed).\n"
+                "The filename must be identical to one of the camera's ID strings\n"
+                "(as may be obtained from camwire_get_identifier()) appended by\n"
+                "an extension of \".conf\".\n\n"
+                "For the current camera suitable filenames are: \n" <<
+                identifier.chip << ".conf \t(chip)" << std::endl <<
+                identifier.model << ".conf \t(model)" << std::endl <<
+                identifier.vendor << ".conf \t(vendor)\n"
+                "Camwire checks for filenames like these in this\n"
+                "chip-model-vendor order.  It first looks for the three filenames\n"
+                "in the current working directory and after that in a directory\n"
+                "given by the CAMWIRE_CONF environment variable.\n\n" << std::endl;
+                return CAMWIRE_FAILURE;
+            }
+        }
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve camera configuration");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camera_handle camera = c_handle->camera;
+        identifier.vendor = camera.get()->vendor;
+        identifier.model = camera.get()->model;
+        identifier.chip = std::to_string(camera.get()->guid);
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get identifier");
         return CAMWIRE_FAILURE;
     }
 }
