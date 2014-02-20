@@ -938,25 +938,20 @@ int camwire::camwire::feature_has_mode(const dc1394feature_info_t &cap, const dc
     }
 }
 
-int camwire::camwire::feature_switch_on(const camwire::Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
+int camwire::camwire::feature_switch_on(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
 {
     try
     {
-        char error_message[ERROR_MESSAGE_MAX_CHARS+1];
-
         if (cap.on_off_capable == DC1394_TRUE && cap.is_on == DC1394_OFF)
         {
-        ERROR_IF_DC1394_FAIL(dc1394_feature_set_power(c_handle->camera.get(), cap.id, DC1394_ON));
-        ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.id, cap.is_on));
-        if (cap->is_on != DC1394_ON)
-        {
-            snprintf(error_message,
-                 ERROR_MESSAGE_MAX_CHARS,
-                 "Could not switch %s on.",
-                 dc1394_feature_get_string(cap->id));
-            DPRINTF(error_message);
-            return CAMWIRE_FAILURE;
-        }
+            ERROR_IF_DC1394_FAIL(dc1394_feature_set_power(c_handle->camera.get(), cap.id, DC1394_ON));
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.id, &cap.is_on));
+            if (cap.is_on != DC1394_ON)
+            {
+                std::string error_message = "Could not switch " + std::to_string(cap.id) + " on.";
+                DPRINTF(error_message);
+                return CAMWIRE_FAILURE;
+            }
         }
         return CAMWIRE_SUCCESS;
     }
@@ -965,6 +960,79 @@ int camwire::camwire::feature_switch_on(const camwire::Camwire_bus_handle_ptr &c
         DPRINTF("Failed to switch on feature");
         return CAMWIRE_FAILURE;
     }
+}
+
+int camwire::camwire::feature_go_manual(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
+{
+    try
+    {
+        if (cap.current_mode != DC1394_FEATURE_MODE_MANUAL)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_feature_set_mode(c_handle->camera.get(),
+                            cap.id,
+                            DC1394_FEATURE_MODE_MANUAL));
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_mode(c_handle->camera.get(),
+                            cap.id,
+                            &cap.current_mode));
+            if (cap.current_mode != DC1394_FEATURE_MODE_MANUAL)
+            {
+                std::string error_message = "Could not switch " + std::to_string(cap.id) + " to manual.";
+                DPRINTF(error_message);
+                return CAMWIRE_FAILURE;
+            }
+        }
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to switch feature to manual");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+double camwire::camwire::convert_numpackets2framerate(const Camwire_bus_handle_ptr &c_handle, const uint32_t num_packets)
+{
+    try
+    {
+        Camwire_conf_ptr config(new Camwire_conf);
+        uint32_t actual;
+
+        if (get_config(c_handle, config) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("get_config() failed.");
+        }
+
+        #ifdef CAMWIRE_DEBUG
+            /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
+            if (config.get()->bus_speed == 0)
+            {
+                DPRINTF("get_config() returned null format.");
+            }
+            else if (config.get()->format != 7)
+            {
+                DPRINTF("Camera is not in Format 7.");
+            }
+        #endif
+
+        actual = num_packets;
+        if (actual < 1)
+            actual = 1;
+        if (actual > config->max_packets)
+            actual = config->max_packets;
+        /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
+        return convert_busspeed2busfreq(config->bus_speed)/actual;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert number of packets to framerate");
+        return 0;
+    }
+}
+
+double camwire::camwire::convert_busspeed2busfreq(const int bus_speed)
+{
+    return (double)(20 * bus_speed);
 }
 
 int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle)
@@ -991,6 +1059,20 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle)
     }
     //return create(c_handle, &settings);
 
+}
+
+int camwire::camwire::probe_camera_colour_correction(const Camwire_bus_handle_ptr &c_handle)
+{
+    try
+    {
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to probe camera colour correction");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::create_from_struct(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set)

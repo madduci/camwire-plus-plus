@@ -195,6 +195,30 @@ namespace camwire
               on-off capable we assume that it is on by default.)
             */
             int feature_switch_on(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
+            /*
+              Switches the given feature to manual if it is auto capable and on
+              auto, assuming that it is manual capable.  (If it is not auto capable
+              we assume that it is manual by default.)
+            */
+            int feature_go_manual(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
+            /*
+              Returns the frame rate corresponding to the given number of packets
+              per frame.
+            */
+            double convert_numpackets2framerate(const Camwire_bus_handle_ptr &c_handle, const uint32_t num_packets);
+            /*
+              Returns the bus frequency (cycles per second) corresponding to the
+              given bus speed (megabits per second).
+            */
+            double convert_busspeed2busfreq(const int bus_speed);
+            /*
+              Returns 1 (true) if the camera implements an internal
+              colour-correction matrix, or 0 (false) otherwise.  Colour correction
+              is a non-standard advanced feature so it has to be tested differently
+              on each supported model.
+            */
+            /* Colour correction supported only in AVT cameras at the moment.*/
+            int probe_camera_colour_correction(const Camwire_bus_handle_ptr &c_handle);
     };
 
 }
