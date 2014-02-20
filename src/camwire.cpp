@@ -126,7 +126,7 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
             sleep(1);  /* Increase chances that camera may recover.*/
         }
 
-        dc1394video_mode_t video_mode = get_1394_video_mode(c_handle.get());
+        dc1394video_mode_t video_mode = get_1394_video_mode(c_handle);
         dc1394color_coding_t color_id;
         dc1394framerates_t supported_fr;
         dc1394feature_info_t capability;
@@ -171,7 +171,7 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
                 if (fr > set->frame_rate)  set->frame_rate = fr;
             }
         }
-        else if(variable_image_size(video)) /* Format 7.*/
+        else if(variable_image_size(video_mode)) /* Format 7.*/
         {
             ERROR_IF_DC1394_FAIL(
                dc1394_format7_get_image_position(c_handle->camera.get(),
@@ -881,6 +881,89 @@ camwire::Camwire_tiling camwire::camwire::convert_filterid2pixeltiling(const dc1
         default:
             return CAMWIRE_TILING_INVALID;  /* Not supported.*/
             break;
+    }
+}
+
+dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle)
+{
+    try
+    {
+       Camwire_conf_ptr config(new Camwire_conf);
+       if(get_config(c_handle, config) != CAMWIRE_SUCCESS)
+           return (dc1394video_mode_t)0;
+       /* FIXME: Need a better way of checking cache initialization than bus_speed: */
+       if (config->bus_speed == 0)
+           return (dc1394video_mode_t)0;
+
+       return convert_format_mode2dc1394video_mode(config->format, config->mode);
+       /* FIXME: Kludge to get it working. Redo video_mode in config. */
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get IEEE 1394 image video_mode");
+        return (dc1394video_mode_t)0;
+    }
+}
+
+int camwire::camwire::feature_is_usable(const dc1394feature_info_t &cap)
+{
+    try
+    {
+        return(cap.available == DC1394_TRUE &&
+               cap.readout_capable == DC1394_TRUE &&
+               (cap.id == DC1394_FEATURE_TRIGGER ||
+                feature_has_mode(cap, DC1394_FEATURE_MODE_MANUAL)));
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve feature usability");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::feature_has_mode(const dc1394feature_info_t &cap, const dc1394feature_mode_t mode)
+{
+    try
+    {
+        for (int m=0; m < cap.modes.num; ++m)
+            if (cap.modes.modes[m] == mode)
+                return CAMWIRE_SUCCESS;
+        return CAMWIRE_FAILURE;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve feature mode");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::feature_switch_on(const camwire::Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
+{
+    try
+    {
+        char error_message[ERROR_MESSAGE_MAX_CHARS+1];
+
+        if (cap.on_off_capable == DC1394_TRUE && cap.is_on == DC1394_OFF)
+        {
+        ERROR_IF_DC1394_FAIL(dc1394_feature_set_power(c_handle->camera.get(), cap.id, DC1394_ON));
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.id, cap.is_on));
+        if (cap->is_on != DC1394_ON)
+        {
+            snprintf(error_message,
+                 ERROR_MESSAGE_MAX_CHARS,
+                 "Could not switch %s on.",
+                 dc1394_feature_get_string(cap->id));
+            DPRINTF(error_message);
+            return CAMWIRE_FAILURE;
+        }
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to switch on feature");
+        return CAMWIRE_FAILURE;
     }
 }
 

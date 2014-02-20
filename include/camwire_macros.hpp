@@ -45,8 +45,8 @@ Camwire++: Michele Adduci <info@micheleadduci.net>
 
 /* If consistently used, it should be possible to change these return
    codes without breaking anything: */
-const bool CAMWIRE_SUCCESS = true;
-const bool CAMWIRE_FAILURE = false;
+const int CAMWIRE_SUCCESS = 1;  /* true */
+const int CAMWIRE_FAILURE = 0;  /* false */
 
 /* Function error status returns, for readability and
    maintainability: */

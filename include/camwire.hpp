@@ -174,7 +174,27 @@ namespace camwire
               Format 7.
             */
             Camwire_tiling convert_filterid2pixeltiling(const dc1394color_filter_t filter_id);
-
+            /*
+              Returns the IEEE 1394 image video_mode, or 0 on error.
+            */
+            dc1394video_mode_t get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle);
+            /*
+              Returns true if the given feature is available, readable, and manually
+              controllable, as reported by the given dc1394feature_info_t structure.
+              The trigger feature is an exception in that it does not have auto or
+              manual settings.  */
+            int feature_is_usable(const dc1394feature_info_t &cap);
+            /*
+              Returns true if the given feature is available, readable, and manually
+              controllable, as reported by the given dc1394feature_info_t structure.
+              The trigger feature is an exception in that it does not have auto or
+              manual settings.  */
+            int feature_has_mode(const dc1394feature_info_t &cap, const dc1394feature_mode_t mode);
+            /*
+              Switches the given feature on if it is on-off capable.  (If it is not
+              on-off capable we assume that it is on by default.)
+            */
+            int feature_switch_on(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
     };
 
 }
