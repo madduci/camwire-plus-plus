@@ -1,5 +1,4 @@
 #include <dc1394/vendor/avt.h>
-
 #include <camwire_config.hpp>
 #include <camwire.hpp>
 #include <cstring>
@@ -89,7 +88,7 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
 
         /* Connect the camera to the bus and initialize it with our
            settings: */
-        if (connect_cam(c_handle, &config, set) != CAMWIRE_SUCCESS)
+        if (connect_cam(c_handle, config, set) != CAMWIRE_SUCCESS)
         {
             DPRINTF("connect_cam() failed.");
             free_internals(c_handle);
@@ -428,6 +427,212 @@ int camwire::camwire::sleep_frametime(const Camwire_bus_handle_ptr &c_handle, co
     }
 }
 
+int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg, const Camwire_state_ptr &set)
+{
+    try
+    {
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
+        /* If dc1394_capture_stop() is called without a preceding
+           successful call to dc1394_capture_setup(), libdc1394 used to get
+           into a tangled state.  That is why we keep track with the
+           camera_connected flag, and check it in disconnect_cam(): */
+        internal_status->camera_connected = 0;
+        /* Set 1394B mode if it is available.  Don't check the return
+            status, because older cameras won't support it: */
+         dc1394_video_set_operation_mode(c_handle->camera.get(),
+                         DC1394_OPERATION_MODE_1394B);
+
+        dc1394video_mode_t video_mode = convert_format_mode2dc1394video_mode(cfg->format, cfg->mode);
+        ERROR_IF_ZERO(video_mode);
+
+        dc1394framerates_t framerate_list;
+        dc1394framerate_t  frame_rate_index;
+        dc1394color_codings_t coding_list;
+        dc1394color_coding_t  color_id;
+        Camwire_pixel actual_coding;
+        double actual_frame_rate = 0.0f;
+        uint32_t num_packets, packet_size;
+        int depth = 0;
+        if(fixed_image_size(video_mode))    /* Format 0, 1 or 2 */
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_video_get_supported_framerates(c_handle->camera.get(), video_mode, &framerate_list));
+            if(framerate_list.num == 0)
+            {
+                DPRINTF("dc1394_video_get_supported_framerates returned an empty list");
+                return CAMWIRE_FAILURE;
+            }
+
+            frame_rate_index = static_cast<dc1394framerate_t>(convert_framerate2index(set->frame_rate, framerate_list));
+            ERROR_IF_ZERO(frame_rate_index);
+            /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed, unless there is an entry in the .conf file: */
+            ERROR_IF_DC1394_FAIL(
+                dc1394_video_set_iso_speed(c_handle->camera.get(),
+                               static_cast<dc1394speed_t>(convert_busspeed2dc1394(cfg->bus_speed))));
+            ERROR_IF_DC1394_FAIL(
+                dc1394_video_set_mode(c_handle->camera.get(),
+                          video_mode));
+            ERROR_IF_DC1394_FAIL(
+                dc1394_video_set_framerate(c_handle->camera.get(),
+                               frame_rate_index));
+
+            ERROR_IF_DC1394_FAIL(
+                    dc1394_capture_setup(c_handle->camera.get(),
+                         set->num_frame_buffers,
+                         DC1394_CAPTURE_FLAGS_DEFAULT));
+
+            internal_status->num_dma_buffers = set->num_frame_buffers;
+            actual_coding = convert_videomode2pixelcoding(video_mode);
+            actual_frame_rate = convert_index2framerate(frame_rate_index);
+        }
+        else if (variable_image_size(video_mode))   /* Format 7 */
+        {
+            /* Prevent a segfault due to kalloc() bug in dma.c of the
+               linux1394 system.  This ought to be removed for later
+               versions: */
+            ERROR_IF_CAMWIRE_FAIL(pixel_depth(set->coding, depth));
+            /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed, unless there is an entry in the .conf file: */
+            ERROR_IF_DC1394_FAIL(dc1394_video_set_iso_speed(c_handle->camera.get(), static_cast<dc1394speed_t>(convert_busspeed2dc1394(cfg->bus_speed))));
+            ERROR_IF_DC1394_FAIL(dc1394_video_set_mode(c_handle->camera.get(), video_mode));
+
+            /* Set up the color_coding_id before calling
+               dc1394_capture_setup(), otherwise the wrong DMA buffer size
+               may be allocated: */
+            ERROR_IF_DC1394_FAIL(
+                dc1394_format7_get_color_codings(c_handle->camera.get(),
+                                 video_mode,
+                                 &coding_list));
+
+            if(coding_list.num == 0)
+            {
+                DPRINTF("dc1394_format7_get_color_codings returned an empty list");
+                return CAMWIRE_FAILURE;
+            }
+
+            color_id = static_cast<dc1394color_coding_t>(convert_pixelcoding2colorid(set->coding, coding_list));
+            if (color_id == 0)
+            {
+                DPRINTF("Pixel colour coding is invalid or not supported by the camera.");
+                return CAMWIRE_FAILURE;
+            }
+            ERROR_IF_DC1394_FAIL(
+                dc1394_format7_set_color_coding(
+                c_handle->camera.get(),
+                video_mode,
+                color_id));
+            actual_coding = convert_colorid2pixelcoding(color_id);
+
+            /* Calculate the packet size from the wanted frame rate.  But
+               first set the image size because that (together with
+               color_id) can affect the max_bytes read by
+              dc1394_format7_get_packet_parameters() (or total_bytes read by
+              dc1394_format7_get_total_bytes()) in
+               convert_numpackets2packetsize(): */
+            ERROR_IF_DC1394_FAIL(
+                dc1394_format7_set_image_position(
+                c_handle->camera.get(),
+                video_mode,
+                set->left, set->top));  /* So that _image_size() doesn't fail.*/
+            ERROR_IF_DC1394_FAIL(
+                dc1394_format7_set_image_size(
+                c_handle->camera.get(),
+                video_mode,
+                set->width, set->height));  /* PACKET_PARA_INQ is now valid. */
+
+            num_packets = convert_framerate2numpackets(c_handle, set->frame_rate);
+
+            ERROR_IF_ZERO(num_packets);
+            packet_size = convert_numpackets2packetsize(c_handle,
+                                    num_packets,
+                                    set->width,
+                                    set->height,
+                                    actual_coding);
+
+            ERROR_IF_ZERO(packet_size);
+
+            /* Set up the camera and DMA buffers: */
+            ERROR_IF_DC1394_FAIL(
+                dc1394_format7_set_packet_size(
+                c_handle->camera.get(),
+                video_mode,
+                packet_size));
+            ERROR_IF_DC1394_FAIL(
+                dc1394_capture_setup(c_handle->camera.get(),
+                         set->num_frame_buffers,
+                         DC1394_CAPTURE_FLAGS_DEFAULT));
+            num_packets = convert_packetsize2numpackets(c_handle,
+                                    packet_size,
+                                    set->width,
+                                    set->height,
+                                    actual_coding);
+            ERROR_IF_ZERO(num_packets);
+            actual_frame_rate =
+                convert_numpackets2framerate(c_handle, num_packets);
+        }
+        else
+        {
+            DPRINTF("Unsupported Camera format.");
+            return CAMWIRE_FAILURE;
+        }
+
+        internal_status->camera_connected = 1;
+        internal_status->frame = 0;
+        internal_status->frame_lock = 0;
+        internal_status->num_dma_buffers = set->num_frame_buffers;
+        /* Find out camera capabilities (which should only be done after
+           setting up the format and mode above): */
+        Camera_handle dc1394_camera = c_handle->camera;
+        internal_status->extras->single_shot_capable = (dc1394_camera->one_shot_capable != DC1394_FALSE ? 1 : 0);
+        internal_status->extras->gamma_capable = probe_camera_gamma(c_handle);
+        internal_status->extras->colour_corr_capable = probe_camera_colour_correction(c_handle);
+        internal_status->extras->tiling_value = probe_camera_tiling(c_handle);
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get_all(c_handle->camera.get(), &internal_status->feature_set));
+        /* Update DMA-affected shadow states not done in
+           set_non_dma_registers() calls below: */
+        Camwire_state_ptr shadow_state = get_shadow_state(c_handle);
+        ERROR_IF_NULL(shadow_state);
+        shadow_state->num_frame_buffers = set->num_frame_buffers;
+        shadow_state->left = set->left;
+        shadow_state->top = set->top;
+        shadow_state->width = set->width;
+        shadow_state->height = set->height;
+        shadow_state->coding = actual_coding;
+        shadow_state->frame_rate = actual_frame_rate;
+
+        /* Initialize camera registers not already done by
+           dc1394_video_set_framerate() or dc1394_format7_set_roi() and
+           update shadow state of these: */
+        ERROR_IF_CAMWIRE_FAIL(set_non_dma_registers(c_handle, set));
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to connect camera");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::reconnect_cam(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg, const Camwire_state_ptr &set)
+{
+    try
+    {
+        if (set->running)
+        {
+            ERROR_IF_CAMWIRE_FAIL(set_run_stop(c_handle, 0));
+            ERROR_IF_CAMWIRE_FAIL(sleep_frametime(c_handle, 1.5));
+        }
+        disconnect_cam(c_handle);
+        ERROR_IF_CAMWIRE_FAIL(connect_cam(c_handle, cfg, set));
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to reconnect camera.");
+        return CAMWIRE_FAILURE;
+    }
+}
+
 void camwire::camwire::disconnect_cam(const Camwire_bus_handle_ptr &c_handle)
 {    
     try
@@ -735,7 +940,7 @@ double camwire::camwire::convert_index2framerate(const dc1394framerate_t frame_r
     }
 }
 
-int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1394framerates_t *framerate_list)
+int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1394framerates_t &framerate_list)
 {
     try
     {
@@ -752,9 +957,9 @@ int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1
         log2f = log(fps/min_fr)/log(2);  /* 1.875->0, 3.75->1, 7.5->2, etc.*/
         best = DBL_MAX;
         nearest_index = -1;
-        for (r=0; r<framerate_list->num; ++r)
+        for (r=0; r < framerate_list.num; ++r)
         {
-            rate_index = framerate_list->framerates[r];
+            rate_index = framerate_list.framerates[r];
             diff = fabs(log2f - rate_index + DC1394_FRAMERATE_MIN);
             if (diff < best)
             {
@@ -771,6 +976,19 @@ int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1
     {
         DPRINTF("Failed to convert framerate to index");
         return 0;
+    }
+}
+
+void camwire::camwire::convert_avtvalues2colourcoefs(const int32_t val[9], double coef[9])
+{
+    try
+    {
+        for(int c = 0; c < 9; ++c)
+            coef[c] = val[c]/1000.0;
+    }
+    catch(std::out_of_range &oor)
+    {
+        DPRINTF("Cannot convert avt values to colour coefficients");
     }
 }
 
@@ -884,16 +1102,164 @@ camwire::Camwire_tiling camwire::camwire::convert_filterid2pixeltiling(const dc1
     }
 }
 
+uint32_t camwire::camwire::convert_framerate2numpackets(const Camwire_bus_handle_ptr &c_handle, const double frame_rate)
+{
+    try
+    {
+        Camwire_conf_ptr config(new Camwire_conf);
+        u_int32_t num_packets;
+
+        if(get_config(c_handle, config) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get config.");
+            return 0;
+        }
+        #ifdef CAMWIRE_DEBUG
+            /* FIXME: Need a better way of checking cache initialization than bus_speed: */
+            if (config->bus_speed == 0)
+            {
+            DPRINTF("get_config() returned null format.");
+            return 0;
+            }
+        #endif
+
+            if (frame_rate <= 0)  return config->max_packets;
+            /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
+            num_packets = static_cast<u_int32_t>(convert_busspeed2busfreq(config->bus_speed)/frame_rate + 0.5);
+            if (num_packets < 1)
+                num_packets = 1;
+            if (num_packets > config->max_packets)
+                num_packets = config->max_packets;
+            return num_packets;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert framerate to number of packets");
+        return 0;
+    }
+}
+
+uint32_t camwire::camwire::convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list)
+{
+    switch (coding)
+    {
+        case CAMWIRE_PIXEL_MONO8:  /* 8 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_MONO8))
+            return DC1394_COLOR_CODING_MONO8;
+            break;
+        case CAMWIRE_PIXEL_YUV411:  /* 12 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_YUV411))
+            return DC1394_COLOR_CODING_YUV411;
+            break;
+        case CAMWIRE_PIXEL_YUV422:  /* 16 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_YUV422))
+            return DC1394_COLOR_CODING_YUV422;
+            break;
+        case CAMWIRE_PIXEL_YUV444:  /* 24 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_YUV444))
+            return DC1394_COLOR_CODING_YUV444;
+            break;
+        case CAMWIRE_PIXEL_RGB8:  /* 24 bits/pixel.*/
+            if (is_in_coding_list(coding_list,DC1394_COLOR_CODING_RGB8))
+            return DC1394_COLOR_CODING_RGB8;
+            break;
+        case CAMWIRE_PIXEL_MONO16:  /* 16 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_MONO16))
+            return DC1394_COLOR_CODING_MONO16;
+            break;
+        case CAMWIRE_PIXEL_RGB16:  /* 48 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_RGB16))
+            return DC1394_COLOR_CODING_RGB16;
+            break;
+        case CAMWIRE_PIXEL_MONO16S:  /* 16 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_MONO16S))
+            return DC1394_COLOR_CODING_MONO16S;
+            break;
+        case CAMWIRE_PIXEL_RGB16S:  /* 48 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_RGB16S))
+            return DC1394_COLOR_CODING_RGB16S;
+            break;
+        case CAMWIRE_PIXEL_RAW8:  /* 8 bits/pixel.*/
+            if (is_in_coding_list(coding_list,DC1394_COLOR_CODING_RAW8 ))
+            return DC1394_COLOR_CODING_RAW8;
+            break;
+        case CAMWIRE_PIXEL_RAW16:  /* 16 bits/pixel.*/
+            if (is_in_coding_list(coding_list, DC1394_COLOR_CODING_RAW16))
+            return DC1394_COLOR_CODING_RAW16;
+            break;
+        default:
+            return 0;  /* No such coding.*/
+            break;
+    }
+    return 0;  /* Not supported by camera.*/
+}
+
+int camwire::camwire::is_in_coding_list(const dc1394color_codings_t &coding_list, const dc1394color_coding_t color_id)
+{
+    for (int c = 0; c < coding_list.num; ++c)
+    {
+        if (coding_list.codings[c] == color_id)  return 1;
+    }
+    return 0;
+}
+
+dc1394video_mode_t camwire::camwire::convert_format_mode2dc1394video_mode(const int format, const int mode)
+{
+    try
+    {
+        dc1394video_mode_t videomode = static_cast<dc1394video_mode_t>(mode_dc1394_offset[format] + mode);
+        return videomode;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Cannot convert format to video mode");
+        return DC1394_VIDEO_MODE_INVALID;
+    }
+}
+
+int camwire::camwire::pixel_depth(const Camwire_pixel coding, int &depth)
+{
+    switch (coding)
+    {
+        case CAMWIRE_PIXEL_MONO8:
+        case CAMWIRE_PIXEL_RAW8:
+            depth = 8;
+            break;
+        case CAMWIRE_PIXEL_YUV411:
+            depth = 12;
+            break;
+        case CAMWIRE_PIXEL_YUV422:
+        case CAMWIRE_PIXEL_MONO16:
+        case CAMWIRE_PIXEL_MONO16S:
+        case CAMWIRE_PIXEL_RAW16:
+            depth = 16;
+            break;
+        case CAMWIRE_PIXEL_YUV444:
+        case CAMWIRE_PIXEL_RGB8:
+            depth = 24;
+            break;
+        case CAMWIRE_PIXEL_RGB16:
+        case CAMWIRE_PIXEL_RGB16S:
+            depth = 48;
+            break;
+        default:
+            depth = 0;
+            return CAMWIRE_FAILURE;  /* Invalid or unknown coding.*/
+            break;
+    }
+    return CAMWIRE_SUCCESS;
+}
+
 dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle)
 {
     try
     {
        Camwire_conf_ptr config(new Camwire_conf);
        if(get_config(c_handle, config) != CAMWIRE_SUCCESS)
-           return (dc1394video_mode_t)0;
+           return DC1394_VIDEO_MODE_INVALID;
        /* FIXME: Need a better way of checking cache initialization than bus_speed: */
        if (config->bus_speed == 0)
-           return (dc1394video_mode_t)0;
+           return DC1394_VIDEO_MODE_INVALID;
 
        return convert_format_mode2dc1394video_mode(config->format, config->mode);
        /* FIXME: Kludge to get it working. Redo video_mode in config. */
@@ -902,7 +1268,7 @@ dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handl
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to get IEEE 1394 image video_mode");
-        return (dc1394video_mode_t)0;
+        return DC1394_VIDEO_MODE_INVALID;
     }
 }
 
@@ -1032,7 +1398,29 @@ double camwire::camwire::convert_numpackets2framerate(const Camwire_bus_handle_p
 
 double camwire::camwire::convert_busspeed2busfreq(const int bus_speed)
 {
-    return (double)(20 * bus_speed);
+    return static_cast<double>(20 * bus_speed);
+}
+
+int camwire::camwire::convert_busspeed2dc1394(const int bus_speed)
+{
+    switch (bus_speed)
+    {
+        case 100:
+            return DC1394_ISO_SPEED_100;
+        case 200:
+            return DC1394_ISO_SPEED_200;
+        case 400:
+            return DC1394_ISO_SPEED_400;
+        case 800:
+            return DC1394_ISO_SPEED_800;
+        case 1600:
+            return DC1394_ISO_SPEED_1600;
+        case 3200:
+            return DC1394_ISO_SPEED_3200;
+        default:
+            DPRINTF("Bus speed is not a legal value.");
+            return DC1394_ISO_SPEED_400;
+    }
 }
 
 int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle)
@@ -1065,13 +1453,72 @@ int camwire::camwire::probe_camera_colour_correction(const Camwire_bus_handle_pt
 {
     try
     {
+        dc1394_avt_adv_feature_info_t adv_feature;
 
-        return CAMWIRE_SUCCESS;
+        int dc1394_return = dc1394_avt_get_advanced_feature_inquiry(c_handle->camera.get(),
+                            &adv_feature);
+
+        if(dc1394_return == DC1394_SUCCESS && adv_feature.ColorCorrection != DC1394_FALSE)
+            return CAMWIRE_SUCCESS;
+        else
+            return CAMWIRE_FAILURE;
     }
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to probe camera colour correction");
         return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::probe_camera_gamma(const Camwire_bus_handle_ptr &c_handle)
+{
+    try
+    {
+        dc1394_avt_adv_feature_info_t adv_capability;
+
+        int dc1394_return = dc1394_avt_get_advanced_feature_inquiry(c_handle->camera.get(),
+                            &adv_capability);
+
+        if(dc1394_return == DC1394_SUCCESS && adv_capability.Lookup_Tables == DC1394_TRUE)
+            return CAMWIRE_SUCCESS;
+        else
+            return CAMWIRE_FAILURE;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to probe gamma correction");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+camwire::Camwire_tiling camwire::camwire::probe_camera_tiling(const Camwire_bus_handle_ptr &c_handle)
+{
+    try
+    {
+        dc1394video_mode_t video_mode;
+        uint32_t filter_id;
+        int dc1394_return;
+
+        video_mode = get_1394_video_mode(c_handle);
+        if (video_mode == 0)
+        {
+            DPRINTF("Video mode is zero.");
+            return CAMWIRE_TILING_INVALID;
+        }
+        dc1394_return = dc1394_format7_get_color_filter(c_handle->camera.get(),
+                                video_mode,
+                                reinterpret_cast<dc1394color_filter_t*>(&filter_id));
+        if (dc1394_return != DC1394_SUCCESS)
+        {
+            DPRINTF("dc1394_format7_get_color_filter() failed.");
+            return CAMWIRE_TILING_INVALID;
+        }
+        return convert_filterid2pixeltiling(static_cast<dc1394color_filter_t>(filter_id));
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to probe gamma correction");
+        return CAMWIRE_TILING_INVALID;
     }
 }
 

@@ -100,6 +100,24 @@ namespace camwire
               physically read from the camera, depending on the state shadow flag. */
             int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
             int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, const double multiple);
+            /*
+              Connects the camera to the bus and sets it to the given configuration
+              and initial settings.  Returns CAMWIRE_SUCCESS on success or
+              CAMWIRE_FAILURE on failure.  The function disconnect_cam() must be
+              called when done to free the allocated memory.
+            */
+            int connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg, const Camwire_state_ptr &set);
+            /*
+              Disconnects the camera from and connects it to the bus.  Any changes
+              in the cfg and set arguments take effect.  This function is used
+              mainly to re-initialize the video1394 driver interface for things like
+              flushing the frame buffers or changing the frame dimensions or frame
+              rate.  If the camera is running, it is stopped and the process sleeps
+              for at least one frame time before disconnecting.  Returns
+              CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure.
+            */
+            int reconnect_cam(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg, const Camwire_state_ptr &set);
+
             /* Disconnects the camera from the bus and frees memory allocated in
               connect_cam().  The camera should be stopped before calling this
               function.
@@ -151,30 +169,6 @@ namespace camwire
             */
             int variable_image_size(const dc1394video_mode_t video_mode);
             /*
-              Returns the video frame rate for the given libdc1394 index, or -1.0 if
-              it is not recognized.
-            */
-            double convert_index2framerate(const dc1394framerate_t frame_rate_index);
-            /*
-              Returns the nearest valid libdc1394 index for the given video frame
-              rate.  The list of supported frame rates must not be empty.
-            */
-            int convert_framerate2index(const double frame_rate, const dc1394framerates_t *framerate_list);
-            /*
-              Returns the pixel coding given the libdc1394 mode in Formats 0, 1 and 2.
-            */
-            Camwire_pixel convert_videomode2pixelcoding(const dc1394video_mode_t video_mode);
-            /*
-              Returns the pixel coding given the libdc1394 colour coding ID in
-              Format 7.
-            */
-            Camwire_pixel convert_colorid2pixelcoding(const dc1394color_coding_t color_id);
-            /*
-              Returns the pixel tiling given the libdc1394 colour coding ID in
-              Format 7.
-            */
-            Camwire_tiling convert_filterid2pixeltiling(const dc1394color_filter_t filter_id);
-            /*
               Returns the IEEE 1394 image video_mode, or 0 on error.
             */
             dc1394video_mode_t get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle);
@@ -202,6 +196,22 @@ namespace camwire
             */
             int feature_go_manual(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
             /*
+              Returns 1 (true) if the camera implements an internal
+              colour-correction matrix, or 0 (false) otherwise.  Colour correction
+              is a non-standard advanced feature so it has to be tested differently
+              on each supported model.
+            */
+            /* Colour correction supported only in AVT cameras at the moment.*/
+            int probe_camera_colour_correction(const Camwire_bus_handle_ptr &c_handle);
+            /*
+               Returns 1 (true) if the camera implements an internal gamma-correction
+               look-up table, or 0 (false) otherwise.  Gamma correction is a
+               non-standard advanced feature so it has to be tested differently on
+               each supported model.
+            */
+            /* Gamma supported only in AVT cameras at the moment.*/
+            int probe_camera_gamma(const Camwire_bus_handle_ptr &c_handle);
+            /*
               Returns the frame rate corresponding to the given number of packets
               per frame.
             */
@@ -212,13 +222,67 @@ namespace camwire
             */
             double convert_busspeed2busfreq(const int bus_speed);
             /*
-              Returns 1 (true) if the camera implements an internal
-              colour-correction matrix, or 0 (false) otherwise.  Colour correction
-              is a non-standard advanced feature so it has to be tested differently
-              on each supported model.
+              Returns the libdc1394 data speed enumeration (SPEED_100, SPEED_200,
+              etc.) corresponding to the given bus speed (megabits per second).
             */
-            /* Colour correction supported only in AVT cameras at the moment.*/
-            int probe_camera_colour_correction(const Camwire_bus_handle_ptr &c_handle);
+            int convert_busspeed2dc1394(const int bus_speed);
+            /*
+              Returns the video frame rate for the given libdc1394 index, or -1.0 if
+              it is not recognized.
+            */
+            double convert_index2framerate(const dc1394framerate_t frame_rate_index);
+            /*
+              Returns the nearest valid libdc1394 index for the given video frame
+              rate.  The list of supported frame rates must not be empty.
+            */
+            int convert_framerate2index(const double frame_rate, const dc1394framerates_t &framerate_list);
+            /*
+              Returns the colour correction coefficients corresponding to the
+              9 given AVT signed 32-bit int register values.
+            */
+            void convert_avtvalues2colourcoefs(const int32_t val[9], double coef[9]);
+            /*
+              Returns the pixel tiling as obtained directly from the camera.
+            */
+            Camwire_tiling probe_camera_tiling(const Camwire_bus_handle_ptr &c_handle);
+            /*
+              Returns the pixel coding given the libdc1394 mode in Formats 0, 1 and 2.
+            */
+            Camwire_pixel convert_videomode2pixelcoding(const dc1394video_mode_t video_mode);
+            /*
+              Returns the pixel coding given the libdc1394 colour coding ID in
+              Format 7.
+            */
+            Camwire_pixel convert_colorid2pixelcoding(const dc1394color_coding_t color_id);
+            /*
+              Returns the pixel tiling given the libdc1394 colour coding ID in
+              Format 7.
+            */
+            Camwire_tiling convert_filterid2pixeltiling(const dc1394color_filter_t filter_id);
+            /*
+              Returns the number of video packets per frame corresponding to the
+              given frame rate.
+            */
+            uint32_t convert_framerate2numpackets(const Camwire_bus_handle_ptr &c_handle, const double frame_rate);
+            /*
+              Returns the libdc1394 colour coding ID that supports the given pixel
+              coding, or 0 on error.  The coding_list argument must not be empty.
+            */
+            uint32_t convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list);
+            /*
+              Returns true (1) if the given color_id is in the given coding_list,
+              else returns false (0).
+             */
+            int is_in_coding_list(const dc1394color_codings_t &coding_list, const dc1394color_coding_t color_id);
+            /*
+              Returns the dc1394 video_mode corresponding to the given numeric
+              format and mode.  */
+            dc1394video_mode_t convert_format_mode2dc1394video_mode(const int format, const int mode);
+            /* Translates the given Camwire pixel colour coding into the
+               corresponding pixel depth in bits per pixel.  Returns CAMWIRE_SUCCESS
+               on success or CAMWIRE_FAILURE on failure. */
+            int pixel_depth(const Camwire_pixel coding, int &depth);
+
     };
 
 }

@@ -89,6 +89,15 @@ namespace camwire
         CAMWIRE_TILING_YUYV
     };
 
+    /* To translate to or from dc1394 mode enums: */
+    static const int mode_dc1394_offset[] = {
+        DC1394_VIDEO_MODE_160x120_YUV444,   /* Format 0.*/
+        DC1394_VIDEO_MODE_800x600_YUV422,   /* Format 1.*/
+        DC1394_VIDEO_MODE_1280x960_YUV422,  /* Format 2.*/
+        0, 0, 0,                            /* Reserved formats.*/
+        DC1394_VIDEO_MODE_EXIF,             /* Format 6.*/
+        DC1394_VIDEO_MODE_FORMAT7_0         /* Format 7.*/
+    };
 
     /* Type for holding camera settings, such as those returned from
        getCameraState() or passed to

@@ -35,6 +35,7 @@ Camwire++: Michele Adduci <info@micheleadduci.net>
 ***********************************************************************/
 
 #include <iostream>
+#include <dc1394/types.h>
 
 /* Print debugging error message: */
 #ifdef CAMWIRE_DEBUG
@@ -65,5 +66,11 @@ const int CAMWIRE_FAILURE = 0;  /* false */
 
 #define CONFFILE_EXTENSION		".conf"
 #define ENVIRONMENT_VAR_CONF	"CAMWIRE_CONF"
+
+/*
+    Since libdc1394 doesn't offer and "Invalid video mode" enum type, here I add it:
+*/
+
+static const dc1394video_mode_t DC1394_VIDEO_MODE_INVALID = static_cast<dc1394video_mode_t>(0);
 
 #endif /* ndef CAMWIREMACROS_H */
