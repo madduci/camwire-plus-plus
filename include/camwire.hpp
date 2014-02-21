@@ -72,6 +72,23 @@ namespace camwire
                Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
             int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
 
+            /* Sets the state shadow flag: 1 to get camera settings from an internal
+               shadow structure or 0 to read them directly from the camera hardware.
+               Setting state shadowing may result in faster camera responses and may
+               increase robustness because the camera firmware is not interrupted by
+               unnecessary status requests.  State shadowing may however be slightly
+               risky because bugs in Camwire or in the camera firmware could cause
+               the shadow state to differ from the actual state.  The state shadow
+               flag of a created camera can be modified at any time because the
+               shadow state is internally maintained irrespective of the state
+               shadow flag status.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure.*/
+            int set_stateshadow(const Camwire_bus_handle_ptr &c_handle, const int shadow);
+            /* Sets the camera's trigger source: 1 for external or 0 for internal.
+               Fails if the camera does not have an external trigger.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int camwire_set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external);
+
         /* Set to protected in case of Subclassing */
         protected:
             Camwire_id cam_id;
@@ -99,6 +116,13 @@ namespace camwire
             /* Gets the camera's current settings from the state shadow or as
               physically read from the camera, depending on the state shadow flag. */
             int get_current_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
+            /*
+              Stores in set a pointer to the Camwire_state structure for the given camwire
+              handle, or a null pointer on error. Returns success on correct creation or failure on error.
+              Needed by many camwire_get/set_...() functions.
+            */
+            int get_shadow_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
+
             int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, const double multiple);
             /*
               Connects the camera to the bus and sets it to the given configuration
@@ -173,28 +197,34 @@ namespace camwire
             */
             dc1394video_mode_t get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle);
             /*
-              Returns true if the given feature is available, readable, and manually
-              controllable, as reported by the given dc1394feature_info_t structure.
-              The trigger feature is an exception in that it does not have auto or
-              manual settings.  */
-            int feature_is_usable(const dc1394feature_info_t &cap);
+              Returns a pointer to the dc1394feature_info_t structure for the given
+              Camwire handle and dc1394 feature enumeration index, or 0 on error.
+              Needed by functions that deal with camera features.
+            */
+            int get_feature_capability(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap, const dc1394feature_t feature);
             /*
               Returns true if the given feature is available, readable, and manually
               controllable, as reported by the given dc1394feature_info_t structure.
               The trigger feature is an exception in that it does not have auto or
               manual settings.  */
-            int feature_has_mode(const dc1394feature_info_t &cap, const dc1394feature_mode_t mode);
+            int feature_is_usable(const std::shared_ptr<dc1394feature_info_t> &cap);
+            /*
+              Returns true if the given feature is available, readable, and manually
+              controllable, as reported by the given dc1394feature_info_t structure.
+              The trigger feature is an exception in that it does not have auto or
+              manual settings.  */
+            int feature_has_mode(const std::shared_ptr<dc1394feature_info_t> &cap, const dc1394feature_mode_t mode);
             /*
               Switches the given feature on if it is on-off capable.  (If it is not
               on-off capable we assume that it is on by default.)
             */
-            int feature_switch_on(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
+            int feature_switch_on(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap);
             /*
               Switches the given feature to manual if it is auto capable and on
               auto, assuming that it is manual capable.  (If it is not auto capable
               we assume that it is manual by default.)
             */
-            int feature_go_manual(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap);
+            int feature_go_manual(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap);
             /*
               Returns 1 (true) if the camera implements an internal
               colour-correction matrix, or 0 (false) otherwise.  Colour correction
@@ -265,6 +295,30 @@ namespace camwire
             */
             uint32_t convert_framerate2numpackets(const Camwire_bus_handle_ptr &c_handle, const double frame_rate);
             /*
+              Returns the nearest packet_size for the given number of video packets
+              per frame.
+            */
+            /* Required limitations imposed on intermediate values:
+               num_packets is a positive integer
+               num_packets <= max_packets
+               packet_size = unit_bytes * n where n is a positive integer
+               packet_size <= max_bytes
+               where unit_bytes and max_bytes are obtained from the PACKET_PARA_INQ
+               register.
+
+               Note that we don't use the function dc1394_query_total_bytes() which
+               reads the TOTAL_BYTE_INQ camera registers, because different
+               manufacturers apparently interpret it differently. See comment in
+               libdc1394/dc1394_format7.c.
+            */
+            uint32_t convert_numpackets2packetsize(const Camwire_bus_handle_ptr &c_handle, const uint32_t num_packets, const int width, const int height, const Camwire_pixel coding);
+            /*
+              Returns the (positive, non-zero) number of video packets per frame for
+              the given packet_size.  Returns 0 on error.
+            */
+            uint32_t convert_packetsize2numpackets(const Camwire_bus_handle_ptr &c_handle, const uint32_t packet_size, const int width, const int height, const Camwire_pixel coding);
+
+            /*
               Returns the libdc1394 colour coding ID that supports the given pixel
               coding, or 0 on error.  The coding_list argument must not be empty.
             */
@@ -282,6 +336,12 @@ namespace camwire
                corresponding pixel depth in bits per pixel.  Returns CAMWIRE_SUCCESS
                on success or CAMWIRE_FAILURE on failure. */
             int pixel_depth(const Camwire_pixel coding, int &depth);
+            /*
+              Initialize camera registers not already done by
+              dc1394_video_set_framerate() or dc1394_format7_set_roi() and update
+              their shadow state.  Note that the order of register writes may be
+              significant for some cameras after power-up or reset/initilize.  */
+            int set_non_dma_registers(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set);
 
     };
 

@@ -128,7 +128,7 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
         dc1394video_mode_t video_mode = get_1394_video_mode(c_handle);
         dc1394color_coding_t color_id;
         dc1394framerates_t supported_fr;
-        dc1394feature_info_t capability;
+        std::shared_ptr<dc1394feature_info_t> capability(new dc1394feature_info_t);
         dc1394bool_t on_off;
         uint32_t num_packets = 0;
         /* Merging the functions, reducing the number of checks on variables */
@@ -175,13 +175,13 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
             ERROR_IF_DC1394_FAIL(
                dc1394_format7_get_image_position(c_handle->camera.get(),
                                 video_mode,
-                                (uint32_t *)&set->left,
-                                (uint32_t *)&set->top));
+                                reinterpret_cast<uint32_t *>(&set->left),
+                                reinterpret_cast<uint32_t *>(&set->top)));
             ERROR_IF_DC1394_FAIL(
                dc1394_format7_get_image_size(c_handle->camera.get(),
                                 video_mode,
-                                (uint32_t *)&set->width,
-                                (uint32_t *)&set->height));
+                                reinterpret_cast<uint32_t *>(&set->width),
+                                reinterpret_cast<uint32_t *>(&set->height)));
             ERROR_IF_DC1394_FAIL(
                dc1394_format7_get_color_coding(
                 c_handle->camera.get(),
@@ -209,23 +209,21 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
         if(set->frame_rate != 0)
             set->shutter = 0.5/set->frame_rate; /* Seconds, default.*/
 
-        capability.id = DC1394_FEATURE_SHUTTER;
-        ERROR_IF_DC1394_FAIL(
-            dc1394_feature_get(c_handle->camera.get(),
-                       &capability));
+        capability->id = DC1394_FEATURE_SHUTTER;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), capability.get()));
 
         double max_shutter, min_shutter;
         Camwire_conf_ptr config(new Camwire_conf);
         if(feature_is_usable(capability))
         {
             ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
-            set->shutter = config->exposure_offset + capability.value * config->exposure_quantum;
+            set->shutter = config->exposure_offset + capability->value * config->exposure_quantum;
             max_shutter = config->exposure_quantum * ((unsigned long int)(1.0 / (set->frame_rate * config->exposure_quantum)));
 
             if(set->shutter > max_shutter)
                 set->shutter = max_shutter;
 
-            min_shutter = config->exposure_offset + capability.min * config->exposure_quantum;
+            min_shutter = config->exposure_offset + capability->min * config->exposure_quantum;
 
             if(set->shutter < min_shutter)
                 set->shutter = min_shutter;
@@ -236,11 +234,11 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
         /* Format and mode-independent settings: */
         set->external_trigger = 0;  /* Flag */
         set->trigger_polarity = 1;  /* Flag, default */
-        capability.id = DC1394_FEATURE_TRIGGER;
-        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        capability->id = DC1394_FEATURE_TRIGGER;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), capability.get()));
         if (feature_is_usable(capability))
         {
-            if (capability.trigger_polarity == DC1394_TRIGGER_ACTIVE_LOW)
+            if (capability->trigger_polarity == DC1394_TRIGGER_ACTIVE_LOW)
                 set->trigger_polarity = 0;
             else
                 set->trigger_polarity = 1;
@@ -248,13 +246,13 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
 
         /* Get the factory gain and set our normalized gain accordingly: */
         set->gain = 0.0;			/* Units, default.*/
-        capability.id = DC1394_FEATURE_GAIN;
-        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        capability->id = DC1394_FEATURE_GAIN;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), capability.get()));
         if (feature_is_usable(capability))
         {
-            if (capability.max != capability.min)
-                set->gain = (double)(capability.value - capability.min) /
-                (capability.max - capability.min);
+            if (capability->max != capability->min)
+                set->gain = (double)(capability->value - capability->min) /
+                (capability->max - capability->min);
         }
         else
             DPRINTF("Camera reported no usable gain.");
@@ -262,12 +260,12 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
         /* Get the factory brightness and set our normalized brightness
            accordingly: */
         set->brightness = 0.0;		/* Units, default.*/
-        capability.id = DC1394_FEATURE_BRIGHTNESS;
-        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        capability->id = DC1394_FEATURE_BRIGHTNESS;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), capability.get()));
         if (feature_is_usable(capability))
         {
-            set->brightness = 2.0*(double)(capability.value - capability.min) /
-                (capability.max - capability.min) - 1.0;
+            set->brightness = 2.0*(double)(capability->value - capability->min) /
+                (capability->max - capability->min) - 1.0;
         }
         else
             DPRINTF("Camera reported no usable brightness.");
@@ -275,16 +273,16 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
         /* Get the factory white balance and set our normalized levels
            accordingly: */
         set->white_balance[0] = set->white_balance[1] = 0.0; 	/* Units, default.*/
-        capability.id = DC1394_FEATURE_WHITE_BALANCE;
-        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), &capability));
+        capability->id = DC1394_FEATURE_WHITE_BALANCE;
+        ERROR_IF_DC1394_FAIL(dc1394_feature_get(c_handle->camera.get(), capability.get()));
         if (feature_is_usable(capability))
         {
-            if (capability.max != capability.min)
+            if (capability->max != capability->min)
             {
-                set->white_balance[0] = (double)(capability.BU_value - capability.min) /
-                (capability.max - capability.min);
-                set->white_balance[1] = (double)(capability.RV_value - capability.min) /
-                (capability.max - capability.min);
+                set->white_balance[0] = (double)(capability->BU_value - capability->min) /
+                (capability->max - capability->min);
+                set->white_balance[1] = (double)(capability->RV_value - capability->min) /
+                (capability->max - capability->min);
             }
         }
         else
@@ -396,6 +394,22 @@ int camwire::camwire::get_current_settings(const Camwire_bus_handle_ptr &c_handl
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to retrieve current settings");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_shadow_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
+{
+    try
+    {
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
+        set = internal_status->current_set;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get shadow state");
         return CAMWIRE_FAILURE;
     }
 }
@@ -589,7 +603,12 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
         ERROR_IF_DC1394_FAIL(dc1394_feature_get_all(c_handle->camera.get(), &internal_status->feature_set));
         /* Update DMA-affected shadow states not done in
            set_non_dma_registers() calls below: */
-        Camwire_state_ptr shadow_state = get_shadow_state(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        if(get_shadow_state(c_handle, shadow_state) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get shadow state");
+            return CAMWIRE_FAILURE;
+        }
         ERROR_IF_NULL(shadow_state);
         shadow_state->num_frame_buffers = set->num_frame_buffers;
         shadow_state->left = set->left;
@@ -1118,8 +1137,8 @@ uint32_t camwire::camwire::convert_framerate2numpackets(const Camwire_bus_handle
             /* FIXME: Need a better way of checking cache initialization than bus_speed: */
             if (config->bus_speed == 0)
             {
-            DPRINTF("get_config() returned null format.");
-            return 0;
+                DPRINTF("get_config() returned null format.");
+                return 0;
             }
         #endif
 
@@ -1135,6 +1154,117 @@ uint32_t camwire::camwire::convert_framerate2numpackets(const Camwire_bus_handle
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to convert framerate to number of packets");
+        return 0;
+    }
+}
+
+uint32_t camwire::camwire::convert_numpackets2packetsize(const Camwire_bus_handle_ptr &c_handle, const uint32_t num_packets, const int width, const int height, const Camwire_pixel coding)
+{
+    try
+    {
+        Camwire_conf_ptr config(new Camwire_conf);
+        if(get_config(c_handle, config) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get configuration");
+            return 0;
+        }
+
+        dc1394video_mode_t video_mode = get_1394_video_mode(c_handle);
+        #ifdef CAMWIRE_DEBUG
+            /* FIXME: Need a better way of checking cache initialization than bus_speed: */
+            if (config->bus_speed == 0)
+            {
+                DPRINTF("get_config() returned null format.");
+                return 0;
+            }
+            else if (!variable_image_size(video_mode))
+            { 	/* Not Format 7.*/
+                DPRINTF("Camera is not in Format 7.");
+                return 0;
+            }
+            if (num_packets < 1 || num_packets > config->max_packets)
+            {
+                DPRINTF("Number of packets is out of range.");
+                return 0;
+            }
+        #endif
+        int depth = 0;
+        if (pixel_depth(coding, depth) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("pixel_depth() failed.");
+            return 0;
+        }
+        uint32_t packet_size;
+        uint32_t unit_bytes, max_bytes;
+        long denominator;
+        /* Set unit_bytes quantum and max_bytes packet size, even if we
+           cannot yet access the camera: */
+        unit_bytes = max_bytes = 0;
+        dc1394_format7_get_packet_parameters(c_handle->camera.get(),
+                         video_mode,
+                         &unit_bytes, &max_bytes);
+        if (unit_bytes < 4)
+            unit_bytes = 4; 	/* At least a quadlet.*/
+        if (max_bytes < unit_bytes)
+        /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
+        max_bytes = 4 * (4915 * config->bus_speed/1600 - 3);
+        /* Max 4915 quadlets in S1600, less 3 for header and data CRC. */
+
+        /* packet_size = ceil(framesize/num_packets), quantized to unit_bytes: */
+        denominator = static_cast<long>(unit_bytes * num_packets * 8);
+        packet_size = ((static_cast<long>(width*height * depth + denominator - 1))/denominator) * unit_bytes;
+
+        /* Check limits: */
+        /* if (packet_size < unit_bytes)  packet_size = unit_bytes; */
+        /* Testing (packet_size < unit_bytes) should not be necessary.*/
+        if (packet_size > max_bytes)
+            packet_size = max_bytes;
+
+        return packet_size;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert numpackets to packet size");
+        return 0;
+    }
+}
+
+uint32_t camwire::camwire::convert_packetsize2numpackets(const Camwire_bus_handle_ptr &c_handle, const uint32_t packet_size, const int width, const int height, const Camwire_pixel coding)
+{
+    try
+    {
+        Camwire_conf_ptr config(new Camwire_conf);
+        int depth = 0;
+        /* num_packets = ceil(framesize/packet_size): */
+        if (pixel_depth(coding, depth) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("pixel_depth() failed.");
+            return 0;
+        }
+
+        uint32_t num_packets;
+        long denominator = static_cast<long>(packet_size * 8);
+        if(denominator > 0)
+        {
+            num_packets = (static_cast<long>(width * height * depth + denominator - 1)) / denominator;
+            if(num_packets < 1)
+                num_packets = 1;
+        }
+        else
+        {
+            if(get_config(c_handle, config) != CAMWIRE_SUCCESS)
+            {
+                DPRINTF("Failed to get configuration");
+                return 0;
+            }
+            num_packets = config->max_packets;
+        }
+
+        return num_packets;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to convert packet size to numpackets");
         return 0;
     }
 }
@@ -1250,6 +1380,179 @@ int camwire::camwire::pixel_depth(const Camwire_pixel coding, int &depth)
     return CAMWIRE_SUCCESS;
 }
 
+/* To-Do: the enabling of capabilities could be optimized passing to feature_is_usable() a structure
+    containing all the possible features and probing them, instead of assigning pointers and recalling
+    same functions. Here the DY concept could be exploited at its maximum */
+int camwire::camwire::set_non_dma_registers(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set)
+{
+    try
+    {
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
+        Camwire_state_ptr shadow_state = internal_status->current_set;
+        ERROR_IF_NULL(shadow_state);
+        /* Update the state shadow flag: */
+        ERROR_IF_CAMWIRE_FAIL(set_stateshadow(c_handle, set->shadow));
+        /* Set up default shadow states for features which may not be
+           supported by the camera.  These may be overwritten below.  The
+           rest of the shadow states will be updated within each
+           camwire_set_...() call: */
+        shadow_state->trigger_polarity = set->trigger_polarity;
+        shadow_state->external_trigger = set->external_trigger;
+        shadow_state->shutter = set->shutter;
+        shadow_state->gain = set->gain;
+        shadow_state->brightness = set->brightness;
+        shadow_state->white_balance[0] = set->white_balance[0];
+        shadow_state->white_balance[1] = set->white_balance[1];
+
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        if(get_feature_capability(c_handle, cap, DC1394_FEATURE_TRIGGER) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get feature capability");
+            return CAMWIRE_FAILURE;
+        }
+        ERROR_IF_NULL(cap);
+        if (feature_is_usable(cap))
+        {
+            /* Trigger never has auto capability, and its on-off setting is
+               done by camwire_set_trigger_source() below.*/
+            ERROR_IF_DC1394_FAIL(dc1394_external_trigger_set_mode(c_handle->camera.get(), DC1394_TRIGGER_MODE_0)); 	/* Edge.*/
+            ERROR_IF_CAMWIRE_FAIL(set_trigger_source(c_handle, set->external_trigger));
+            if (cap->polarity_capable == DC1394_TRUE)
+                ERROR_IF_CAMWIRE_FAIL(set_trigger_polarity(c_handle, set->trigger_polarity));
+        }
+
+        /* Shutter: */
+        if(get_feature_capability(c_handle, cap, DC1394_FEATURE_SHUTTER) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get feature capability");
+            return CAMWIRE_FAILURE;
+        }
+        ERROR_IF_NULL(cap);
+        if (feature_is_usable(cap))
+        {
+            ERROR_IF_CAMWIRE_FAIL(feature_switch_on(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(feature_go_manual(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(set_shutter(c_handle, set->shutter));
+        }
+
+        /* Gain: */
+        if(get_feature_capability(c_handle, cap, DC1394_FEATURE_GAIN) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get feature capability");
+            return CAMWIRE_FAILURE;
+        }
+        ERROR_IF_NULL(cap);
+        if (feature_is_usable(cap))
+        {
+            ERROR_IF_CAMWIRE_FAIL(feature_switch_on(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(feature_go_manual(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(set_gain(c_handle, set->gain));
+        }
+
+        /* Brightness: */
+        if(get_feature_capability(c_handle, cap, DC1394_FEATURE_BRIGHTNESS) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get feature capability");
+            return CAMWIRE_FAILURE;
+        }
+        ERROR_IF_NULL(cap);
+        if (feature_is_usable(cap))
+        {
+            ERROR_IF_CAMWIRE_FAIL(feature_switch_on(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(feature_go_manual(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(set_brightness(c_handle, set->brightness));
+        }
+
+        /* White balance: */
+        if(get_feature_capability(c_handle, cap, DC1394_FEATURE_WHITE_BALANCE) != CAMWIRE_SUCCESS)
+        {
+            DPRINTF("Failed to get feature capability");
+            return CAMWIRE_FAILURE;
+        }
+        ERROR_IF_NULL(cap);
+        if (feature_is_usable(cap))
+        {
+            ERROR_IF_CAMWIRE_FAIL(feature_switch_on(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(feature_go_manual(c_handle, cap));
+            ERROR_IF_CAMWIRE_FAIL(camwire_set_white_balance(c_handle, set->white_balance));
+        }
+
+        /* Pixel tiling: */
+        shadow_state->tiling = internal_status->extras->tiling_value;
+        /* Tiling cannot be set.  Ignore set->tiling.*/
+
+        /* Colour correction and coefficients: */
+        if (internal_status->extras->colour_corr_capable)
+        {
+            ERROR_IF_CAMWIRE_FAIL(set_colour_correction(c_handle, set->colour_corr));
+        }
+        else
+        {
+            shadow_state->colour_corr = 0;
+        }
+
+        if (internal_status->extras->colour_corr_capable)
+        {
+            ERROR_IF_CAMWIRE_FAIL(set_colour_coefficients(c_handle, set->colour_coef));
+        }
+        else
+        {
+            shadow_state->colour_coef[0] = 1;
+            shadow_state->colour_coef[1] = 0;
+            shadow_state->colour_coef[2] = 0;
+            shadow_state->colour_coef[3] = 0;
+            shadow_state->colour_coef[4] = 1;
+            shadow_state->colour_coef[5] = 0;
+            shadow_state->colour_coef[6] = 0;
+            shadow_state->colour_coef[7] = 0;
+            shadow_state->colour_coef[8] = 1;
+        }
+
+        /* Gamma: */
+        if (internal_status->extras->gamma_capable)
+        {
+            ERROR_IF_CAMWIRE_FAIL(camwire_set_gamma(c_handle, set->gamma));
+        }
+        else
+        {
+            shadow_state->gamma = 0;  /* Ignore set->gamma.*/
+        }
+
+        /* Single-shot: */
+        if (internal_status->extras->single_shot_capable)
+        {
+            ERROR_IF_CAMWIRE_FAIL(set_single_shot(c_handle, set->single_shot));
+        }
+        else
+        {
+            shadow_state->single_shot = 0;  /* Ignore set->single_shot.*/
+        }
+
+        /* Run-stop: */
+        ERROR_IF_CAMWIRE_FAIL(set_run_stop(c_handle, set->running));
+
+        /* The list of settings updated above does not include
+           set_frame_size(), set_pixel_coding(), or
+           set_framerate() because these are already set in
+           dc1394_video_set_framerate() or dc1394_format7_set_roi() and
+           because they could cause infinite recursion since they themselves
+           contain calls to (re)connect_cam() which call this function.
+           camwire_set_frame_offset() is a bit different in that it is set
+           up with dc1394_format7_set_roi() but does not require a
+           reconnect_cam() when it changes. */
+
+        return CAMWIRE_SUCCESS;
+
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set non DMA registers");
+        return CAMWIRE_FAILURE;
+    }
+}
+
 dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle)
 {
     try
@@ -1272,13 +1575,38 @@ dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handl
     }
 }
 
-int camwire::camwire::feature_is_usable(const dc1394feature_info_t &cap)
+int camwire::camwire::get_feature_capability(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap, const dc1394feature_t feature)
 {
     try
     {
-        return(cap.available == DC1394_TRUE &&
-               cap.readout_capable == DC1394_TRUE &&
-               (cap.id == DC1394_FEATURE_TRIGGER ||
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
+        #ifdef CAMWIRE_DEBUG
+            if (internal_status->feature_set.feature[feature-DC1394_FEATURE_MIN].id != feature)
+            {
+                DPRINTF("Requested feature does not match feature_set.id.");
+                return 0;
+            }
+        #endif
+
+        *cap = internal_status->feature_set.feature[feature - DC1394_FEATURE_MIN];
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get feature capability");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::feature_is_usable(const std::shared_ptr<dc1394feature_info_t> &cap)
+{
+    try
+    {
+        return(cap.get()->available == DC1394_TRUE &&
+               cap.get()->readout_capable == DC1394_TRUE &&
+               (cap.get()->id == DC1394_FEATURE_TRIGGER ||
                 feature_has_mode(cap, DC1394_FEATURE_MODE_MANUAL)));
     }
     catch(std::runtime_error &re)
@@ -1288,12 +1616,12 @@ int camwire::camwire::feature_is_usable(const dc1394feature_info_t &cap)
     }
 }
 
-int camwire::camwire::feature_has_mode(const dc1394feature_info_t &cap, const dc1394feature_mode_t mode)
+int camwire::camwire::feature_has_mode(const std::shared_ptr<dc1394feature_info_t> &cap, const dc1394feature_mode_t mode)
 {
     try
     {
-        for (int m=0; m < cap.modes.num; ++m)
-            if (cap.modes.modes[m] == mode)
+        for (int m = 0; m < cap.get()->modes.num; ++m)
+            if (cap.get()->modes.modes[m] == mode)
                 return CAMWIRE_SUCCESS;
         return CAMWIRE_FAILURE;
     }
@@ -1304,17 +1632,18 @@ int camwire::camwire::feature_has_mode(const dc1394feature_info_t &cap, const dc
     }
 }
 
-int camwire::camwire::feature_switch_on(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
+int camwire::camwire::feature_switch_on(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap)
 {
     try
     {
-        if (cap.on_off_capable == DC1394_TRUE && cap.is_on == DC1394_OFF)
+        ERROR_IF_NULL(cap);
+        if (cap.get()->on_off_capable == DC1394_TRUE && cap.get()->is_on == DC1394_OFF)
         {
-            ERROR_IF_DC1394_FAIL(dc1394_feature_set_power(c_handle->camera.get(), cap.id, DC1394_ON));
-            ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.id, &cap.is_on));
-            if (cap.is_on != DC1394_ON)
+            ERROR_IF_DC1394_FAIL(dc1394_feature_set_power(c_handle->camera.get(), cap.get()->id, DC1394_ON));
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.get()->id, &cap.get()->is_on));
+            if (cap.get()->is_on != DC1394_ON)
             {
-                std::string error_message = "Could not switch " + std::to_string(cap.id) + " on.";
+                std::string error_message = "Could not switch " + std::to_string(cap.get()->id) + " on.";
                 DPRINTF(error_message);
                 return CAMWIRE_FAILURE;
             }
@@ -1328,21 +1657,22 @@ int camwire::camwire::feature_switch_on(const Camwire_bus_handle_ptr &c_handle, 
     }
 }
 
-int camwire::camwire::feature_go_manual(const Camwire_bus_handle_ptr &c_handle, dc1394feature_info_t &cap)
+int camwire::camwire::feature_go_manual(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394feature_info_t> &cap)
 {
     try
     {
-        if (cap.current_mode != DC1394_FEATURE_MODE_MANUAL)
+        ERROR_IF_NULL(cap);
+        if (cap.get()->current_mode != DC1394_FEATURE_MODE_MANUAL)
         {
             ERROR_IF_DC1394_FAIL(dc1394_feature_set_mode(c_handle->camera.get(),
-                            cap.id,
+                            cap.get()->id,
                             DC1394_FEATURE_MODE_MANUAL));
             ERROR_IF_DC1394_FAIL(dc1394_feature_get_mode(c_handle->camera.get(),
-                            cap.id,
-                            &cap.current_mode));
-            if (cap.current_mode != DC1394_FEATURE_MODE_MANUAL)
+                            cap.get()->id,
+                            &cap.get()->current_mode));
+            if (cap.get()->current_mode != DC1394_FEATURE_MODE_MANUAL)
             {
-                std::string error_message = "Could not switch " + std::to_string(cap.id) + " to manual.";
+                std::string error_message = "Could not switch " + std::to_string(cap.get()->id) + " to manual.";
                 DPRINTF(error_message);
                 return CAMWIRE_FAILURE;
             }
@@ -1436,17 +1766,13 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle)
             return CAMWIRE_FAILURE;
         }
 
-        //return create(c_handle, &settings);
-
-        return CAMWIRE_SUCCESS;
+        return create(c_handle, settings);
     }
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to initialize camera with default settings");
         return CAMWIRE_FAILURE;
     }
-    //return create(c_handle, &settings);
-
 }
 
 int camwire::camwire::probe_camera_colour_correction(const Camwire_bus_handle_ptr &c_handle)
@@ -1789,6 +2115,57 @@ int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Cam
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to get identifier");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_stateshadow(const Camwire_bus_handle_ptr &c_handle, const int shadow)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        shadow_state->shadow = shadow;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set state shadow");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::camwire_set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_TRIGGER));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->external_trigger = external;
+            DPRINTF("Camera reported no usable trigger");
+            return CAMWIRE_FAILURE;
+        }
+
+        dc1394switch_t on_off;
+        if(external != 0)
+            on_off = DC1394_ON;
+        else
+            on_off = DC1394_OFF;
+
+        ERROR_IF_DC1394_FAIL(dc1394_external_trigger_set_power(c_handle->camera.get(), on_off));
+        shadow_state->external_trigger = external;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set trigger source");
         return CAMWIRE_FAILURE;
     }
 }
