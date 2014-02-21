@@ -1475,7 +1475,7 @@ int camwire::camwire::set_non_dma_registers(const Camwire_bus_handle_ptr &c_hand
         {
             ERROR_IF_CAMWIRE_FAIL(feature_switch_on(c_handle, cap));
             ERROR_IF_CAMWIRE_FAIL(feature_go_manual(c_handle, cap));
-            ERROR_IF_CAMWIRE_FAIL(camwire_set_white_balance(c_handle, set->white_balance));
+            ERROR_IF_CAMWIRE_FAIL(set_white_balance(c_handle, set->white_balance));
         }
 
         /* Pixel tiling: */
@@ -2136,7 +2136,7 @@ int camwire::camwire::set_stateshadow(const Camwire_bus_handle_ptr &c_handle, co
     }
 }
 
-int camwire::camwire::camwire_set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external)
+int camwire::camwire::set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external)
 {
     try
     {
@@ -2166,6 +2166,304 @@ int camwire::camwire::camwire_set_trigger_source(const Camwire_bus_handle_ptr &c
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to set trigger source");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_trigger_polarity(const Camwire_bus_handle_ptr &c_handle, const int rising)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        shadow_state->trigger_polarity = rising;    /* Duplicated? */
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_TRIGGER));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->trigger_polarity = rising;
+            DPRINTF("Camera reported no usable trigger");
+            return CAMWIRE_FAILURE;
+        }
+
+        if(cap.get()->polarity_capable != DC1394_TRUE)
+        {
+            DPRINTF("Camera reported no changeable trigger polarity.");
+            return CAMWIRE_FAILURE;
+        }
+
+        dc1394trigger_polarity_t polarity;
+        if(rising != 0)
+            polarity = DC1394_TRIGGER_ACTIVE_HIGH;
+        else
+            polarity = DC1394_TRIGGER_ACTIVE_LOW;
+
+        ERROR_IF_DC1394_FAIL(dc1394_external_trigger_set_polarity(c_handle->camera.get(), polarity));
+        shadow_state->trigger_polarity = rising;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set trigger polarity");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_shutter(const Camwire_bus_handle_ptr &c_handle, const double shutter)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_SHUTTER));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->shutter = shutter;
+            DPRINTF("Camera reported no usable shutter");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Transform to register value: */
+        Camwire_conf_ptr config(new Camwire_conf);
+        ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+        int shutter_reg = static_cast<int>((shutter - config->exposure_offset)/config->exposure_quantum + 0.5);
+
+        /* Limit shutter_reg to the allowed range: */
+        if (shutter_reg < cap->min)
+            shutter_reg = cap->min;
+        if (shutter_reg > cap->max)
+            shutter_reg = cap->max;
+
+        ERROR_IF_DC1394_FAIL(dc1394_feature_set_value(c_handle->camera.get(),
+                    DC1394_FEATURE_SHUTTER,
+                    shutter_reg));
+        shadow_state->shutter = config->exposure_offset + shutter_reg * config->exposure_quantum;
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set shutter");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_gain(const Camwire_bus_handle_ptr &c_handle, const double gain)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_GAIN));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->gain = gain;
+            DPRINTF("Camera reported no usable shutter");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Check limits: */
+        if (gain < 0.0 || gain > 1.0)
+        {
+            DPRINTF("Gain argument should be in the range [0.0, 1.0].");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Update the camera with new gains: */
+        uint32_t gain_reg;
+        if (cap->max >= cap->min)
+            gain_reg = cap->min + gain*(cap->max - cap->min) + 0.5;
+        else
+            gain_reg = 0;
+
+        ERROR_IF_DC1394_FAIL(dc1394_feature_set_value(c_handle->camera.get(),
+                     DC1394_FEATURE_GAIN,
+                     gain_reg));
+
+        if (cap->max > cap->min)
+            shadow_state->gain = static_cast<double>(gain_reg - cap->min)/(cap->max - cap->min);
+        else
+            shadow_state->gain = 0.0;
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set gain");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_brightness(const Camwire_bus_handle_ptr &c_handle, const double brightness)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_BRIGHTNESS));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->brightness = brightness;
+            DPRINTF("Camera reported no usable brightness");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Check limits: */
+        if (brightness < -1.0 || brightness > 1.0)
+        {
+            DPRINTF("Brightness argument should be in the range [-1.0, +1.0].");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Update the camera with new brightness: */
+        uint32_t brightness_reg;
+        if (cap->max >= cap->min)
+            brightness_reg = cap->min + 0.5*(brightness + 1.0)*(cap->max - cap->min) + 0.5;
+        else
+            brightness_reg = 0;
+
+        ERROR_IF_DC1394_FAIL(
+        dc1394_feature_set_value(c_handle->camera.get(),
+                     DC1394_FEATURE_BRIGHTNESS,
+                     brightness_reg));
+
+        if (cap->max > cap->min)
+            shadow_state->brightness = 2.0 * static_cast<double>(brightness_reg - cap->min)/(cap->max - cap->min) - 1.0;
+        else
+            shadow_state->brightness = 0.0;
+
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set brightness");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_white_balance(const Camwire_bus_handle_ptr &c_handle, const double bal[2])
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_WHITE_BALANCE));
+        ERROR_IF_NULL(cap);
+        if(feature_is_usable(cap))
+        {
+            shadow_state->white_balance[0] = bal[0];
+            shadow_state->white_balance[1] = bal[1];
+            DPRINTF("Camera reported no usable white balance");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Check limits: */
+        if (bal[0] < 0.0 || bal[0] > 1.0 || bal[1] < 0.0 || bal[1] > 1.0)
+        {
+            DPRINTF("White balance arguments should be in the range [0.0, 1.0].");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Update the camera with new balance: */
+        uint32_t blue_reg, red_reg;
+        if (cap->max >= cap->min)
+        {
+            blue_reg = cap->min + bal[0]*(cap->max - cap->min) + 0.5;
+            red_reg  = cap->min + bal[1]*(cap->max - cap->min) + 0.5;
+        }
+        else
+        {
+            blue_reg = red_reg = 0;
+        }
+        ERROR_IF_DC1394_FAIL(dc1394_feature_whitebalance_set_value(c_handle->camera.get(),
+                              blue_reg, red_reg));
+
+        if (cap->max > cap->min)
+        {
+            shadow_state->white_balance[0] = static_cast<double>(blue_reg - cap->min)/(cap->max - cap->min);
+            shadow_state->white_balance[1] = static_cast<double>(red_reg - cap->min)/(cap->max - cap->min);
+        }
+        else
+        {
+            shadow_state->white_balance[0] = shadow_state->white_balance[1] = 0.0;
+        }
+
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set white balance");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_colour_correction(const Camwire_bus_handle_ptr &c_handle, const int corr_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        if (!internal_status->extras->colour_corr_capable)
+        {
+            /* Colour correction is always switched off if the camera can't do it: */
+            shadow_state->colour_corr = 0;
+            DPRINTF("Camera reported no colour correction capability.");
+            return CAMWIRE_FAILURE;
+        }
+
+        double coef[9];
+        int32_t val[9];
+        dc1394bool_t on_off;
+        on_off = (corr_on ? DC1394_FALSE : DC1394_TRUE);
+        /* Note 0 means on (see AVT Stingray Tech Manual).  There is a bug
+           in dc1394_avt_get_color_corr() &
+           dc1394_avt_get_advanced_feature_inquiry() v2.1.2.*/
+
+        ERROR_IF_CAMWIRE_FAIL(get_colour_coefficients(c_handle, coef));
+        convert_colourcoefs2avtvalues(coef, val);
+
+        ERROR_IF_DC1394_FAIL(dc1394_avt_set_color_corr(c_handle->camera.get(),
+                      on_off,
+                      DC1394_FALSE,
+                      val[0], val[1], val[2],
+                      val[3], val[4], val[5],
+                      val[6], val[7], val[8]));
+        shadow_state->colour_corr = (corr_on ? 1 : 0);
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set colour correction");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_colour_coefficients(const Camwire_bus_handle_ptr &c_handle, const double coef[])
+{
+    try
+    {
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set colour coefficients");
         return CAMWIRE_FAILURE;
     }
 }

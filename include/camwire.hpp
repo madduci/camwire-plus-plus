@@ -87,7 +87,65 @@ namespace camwire
             /* Sets the camera's trigger source: 1 for external or 0 for internal.
                Fails if the camera does not have an external trigger.  Returns
                CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int camwire_set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external);
+            int set_trigger_source(const Camwire_bus_handle_ptr &c_handle, const int external);
+            /* Sets the camera's trigger polarity: 1 for rising edge (active high)
+               or 0 for falling edge (active low).  Fails if the trigger polarity is
+               not settable.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure. */
+            int set_trigger_polarity(const Camwire_bus_handle_ptr &c_handle, const int rising);
+            /* Sets the given shutter speed (exposure time in seconds) to the
+               nearest valid value for the camera.  The actual value can be checked
+               afterwards with camwire_get_shutter().  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure. */
+            int set_shutter(const Camwire_bus_handle_ptr &c_handle, const double shutter);
+            /* Sets the gain factor (response slope) to the nearest value valid for
+               the camera.  The gain can be checked afterwards with
+               camwire_get_gain().  Gain values can range between the relative
+               values of 0.0 (minimum) and 1.0 (maximum).  The user has to normalize
+               the actual wanted gain to this range before calling
+               camwire_set_gain().  For example, if the camera specifies the minimum
+               gain as a slope of 1.0 (0dB) and the maximum as 4.0 (12dB), then the
+               relative gain to set is (actual_gain - 1.0)/(4.0 - 1.0).  Fails if
+               the gain is not settable.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure. */
+            int set_gain(const Camwire_bus_handle_ptr &c_handle, const double gain);
+            /* Sets the brightness (black level) to the nearest value valid for the
+               camera.  The brightness can be checked afterwards with
+               camwire_get_brightness().  Brightness values can range between the
+               relative values of -1.0 (minimum) and +1.0 (maximum).  The user has
+               to normalize the actual wanted brightness to this range before
+               calling camwire_set_brightness().  For example, if the camera
+               specifies the minimum brightness level as 0 and the maximum as 1023,
+               then the relative brightness to set is 2.0*actual_brightness/(1023 -
+               0) - 1.0.  Fails if the brightness is not settable.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int set_brightness(const Camwire_bus_handle_ptr &c_handle, const double brightness);
+            /* Sets the white balance levels (blue or U, red or V) for colour
+               cameras to the nearest values valid for the camera.  bal containts
+               numbers between 0.0 (minimum level) and 1.0 (maximum level).  The
+               levels can be checked afterwards with camwire_get_white_balance().
+               Fails if the white balance is not settable.  Returns CAMWIRE_SUCCESS
+               on success or CAMWIRE_FAILURE on failure. */
+            int set_white_balance(const Camwire_bus_handle_ptr &c_handle, const double bal[2]);
+            /* Sets the camera's colour correction setting corr_on, 1 for
+               colour-corrected or 0 for no correction.  Colour correction only
+               takes effect if the current pixel coding is colour (such as
+               CAMWIRE_PIXEL_YUV422 or CAMWIRE_PIXEL_RGB8, but not
+               CAMWIRE_PIXEL_MONO8 etc.).  So far Camwire supports colour correction
+               in AVT cameras only.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure or if the camera is not capable of colour
+               correction. */
+            int set_colour_correction(const Camwire_bus_handle_ptr &c_handle, const int corr_on);
+            /* Sets the camera's colour correction coefficients.  coef is an array
+               of 9 colour correction coefficients, see the description of the
+               colour_coef member of Camwire_state above.  Some cameras support
+               colour correction with fixed coefficients in which case
+               camwire_set_colour_correction() above can enable colour correction
+               but this function would fail because it cannot change the
+               coefficients.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure or if the camera is not capable of setting colour
+               coefficients. */
+            int set_colour_coefficients(const Camwire_bus_handle_ptr &c_handle, const double coef[9]);
 
         /* Set to protected in case of Subclassing */
         protected:
