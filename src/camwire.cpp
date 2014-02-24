@@ -1929,27 +1929,58 @@ int camwire::camwire::destroy(const Camwire_bus_handle_ptr &c_handle)
     }
 }
 
-int camwire::camwire::get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
+/* This function could potentially throw exceptions */
+int camwire::camwire::flush_framebuffers(const Camwire_bus_handle_ptr &c_handle, const int num_to_flush, int &num_flushed, int &buffer_lag)
 {
     try
     {
         ERROR_IF_NULL(c_handle);
-        User_handle internal_status = c_handle->userdata;
-        if (!internal_status || !internal_status->camera_connected)
-        {  /* Camera does not exit.*/
+        void *buffer; //cannot use shared_ptr here
+        int flush_count;
+        for(flush_count = 0; flush_count < num_to_flush; ++flush_count)
+        {
+            ERROR_IF_CAMWIRE_FAIL(point_next_frame_poll(c_handle, &buffer, buffer_lag));
+            if(!buffer)
+                break;
+            ERROR_IF_CAMWIRE_FAIL(unpoint_frame(c_handle));
+        }
 
-           return generate_default_settings(c_handle, set);
+        if(num_flushed)
+            num_flushed = flush_count;
+
+        /* Best-guess buffer lag if no frames got flushed: */
+        if (buffer_lag && num_to_flush < 1)
+        {
+            ERROR_IF_CAMWIRE_FAIL(get_framebuffer_lag(c_handle, buffer_lag));
         }
-        else
-        {  /* Camera exists.*/
-           return generate_default_settings(c_handle, set);
-        }
+
+        return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
-        DPRINTF("Failed to get camera state");
+        DPRINTF("Failed to flush framebuffers");
         return CAMWIRE_FAILURE;
     }
+}
+
+int camwire::camwire::copy_next_frame(const Camwire_bus_handle_ptr &c_handle, void *buffer, int &buffer_lag)
+{
+
+}
+
+int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag)
+{
+
+}
+
+int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag)
+{
+
+}
+
+int camwire::camwire::unpoint_frame(const Camwire_bus_handle_ptr &c_handle)
+{
+
 }
 
 int camwire::camwire::set_run_stop(const Camwire_bus_handle_ptr &c_handle, const int runsts)
@@ -2068,96 +2099,6 @@ int camwire::camwire::set_run_stop(const Camwire_bus_handle_ptr &c_handle, const
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to start/stop camera");
-        return CAMWIRE_FAILURE;
-    }
-}
-
-int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg)
-{
-    try
-    {
-        ERROR_IF_NULL(c_handle);
-        User_handle internal_status = c_handle->userdata;
-        Camwire_id identifier;
-
-        /* Use cached config if it is available: */
-        if(internal_status && config_cache_exists(internal_status))
-        {
-            cfg = internal_status->config_cache;
-        }
-        else
-        { 	/* Read a conf file and cache it.*/
-            ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
-            std::shared_ptr<FILE> conffile(new FILE);
-            ERROR_IF_CAMWIRE_FAIL(find_conf_file(identifier, conffile));
-            if (conffile)
-            {
-                ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
-                fclose(conffile.get());
-                if (internal_status && internal_status->config_cache)
-                { /* A camera has been created (not strictly necessary).*/
-                    internal_status->config_cache = cfg;
-                }
-            }
-            else
-            {
-                std::cerr << std::endl <<
-                "Camwire could not find a hardware configuration file.\n"
-                "Generating a default configuration..." << std::endl;
-                    ERROR_IF_CAMWIRE_FAIL(
-                    generate_default_config(c_handle, cfg));
-                std::cout << std::endl <<
-                "----------------------------------------------------------------" << std::endl;
-
-                    ERROR_IF_CAMWIRE_FAIL(
-                    write_config_to_output(cfg));
-
-                std::cout << std::endl <<
-                "----------------------------------------------------------------\n"
-                "\n"
-                "This is a best guess of the camera and its bus's hardware\n"
-                "configuration.  See README_conf in the Camwire distribution for\n"
-                "details.\n\n"
-                "To create a configuration file, copy the text between (but not\n"
-                "including) the ----- lines into a file (and edit as needed).\n"
-                "The filename must be identical to one of the camera's ID strings\n"
-                "(as may be obtained from camwire_get_identifier()) appended by\n"
-                "an extension of \".conf\".\n\n"
-                "For the current camera suitable filenames are: \n" <<
-                identifier.chip << ".conf \t(chip)" << std::endl <<
-                identifier.model << ".conf \t(model)" << std::endl <<
-                identifier.vendor << ".conf \t(vendor)\n"
-                "Camwire checks for filenames like these in this\n"
-                "chip-model-vendor order.  It first looks for the three filenames\n"
-                "in the current working directory and after that in a directory\n"
-                "given by the CAMWIRE_CONF environment variable.\n\n" << std::endl;
-                return CAMWIRE_FAILURE;
-            }
-        }
-
-        return CAMWIRE_SUCCESS;
-    }
-    catch(std::runtime_error &re)
-    {
-        DPRINTF("Failed to retrieve camera configuration");
-        return CAMWIRE_FAILURE;
-    }
-}
-
-int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier)
-{
-    try
-    {
-        ERROR_IF_NULL(c_handle);
-        Camera_handle camera = c_handle->camera;
-        identifier.vendor = camera.get()->vendor;
-        identifier.model = camera.get()->model;
-        identifier.chip = std::to_string(camera.get()->guid);
-        return CAMWIRE_SUCCESS;
-    }
-    catch(std::runtime_error &re)
-    {
-        DPRINTF("Failed to get identifier");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2518,7 +2459,7 @@ int camwire::camwire::set_colour_coefficients(const Camwire_bus_handle_ptr &c_ha
         dc1394bool_t on_off;
         convert_colourcoefs2avtvalues(coef, val);
 
-        ERROR_IF_CAMWIRE_FAIL(get_colour_correction(c_handle, &corr_on));
+        ERROR_IF_CAMWIRE_FAIL(get_colour_correction(c_handle, corr_on));
         /* Note 0 means on (see AVT Stingray Tech Manual).  There is a bug
                in dc1394_avt_get_color_corr() &
                dc1394_avt_get_advanced_feature_inquiry() v2.1.2.*/
@@ -2577,7 +2518,7 @@ int camwire::camwire::set_gamma(const Camwire_bus_handle_ptr &c_handle, const in
     }
 }
 
-int camwire::camwire::set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int single_shot_on)
+int camwire::camwire::set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int &single_shot_on)
 {
     try
     {
@@ -2652,6 +2593,152 @@ int camwire::camwire::set_single_shot(const Camwire_bus_handle_ptr &c_handle, co
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to set single shot mode");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_num_framebuffers(const Camwire_bus_handle_ptr &c_handle, const int &num_frame_buffers)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_conf_ptr config(new Camwire_conf);
+        Camwire_state_ptr settings(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_current_settings(c_handle, settings));
+        int temp_num_bufs;
+        /* Ensure that video1394 lower limit is met: */
+        if (num_frame_buffers < 2)
+            temp_num_bufs = 2;
+        else
+            temp_num_bufs = num_frame_buffers;
+
+        /* Only proceed if number of buffers has changed: */
+        if (settings->num_frame_buffers != temp_num_bufs)
+        {
+            ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+
+            /* Set new number of buffers by re-initializing the camera: */
+            settings->num_frame_buffers = temp_num_bufs;
+            ERROR_IF_CAMWIRE_FAIL(reconnect_cam(c_handle, config, settings));
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set num framebuffers");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        if (!internal_status || !internal_status->camera_connected)
+        {  /* Camera does not exit.*/
+
+           return generate_default_settings(c_handle, set);
+        }
+        else
+        {  /* Camera exists.*/
+           return generate_default_settings(c_handle, set);
+        }
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get camera state");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_id identifier;
+
+        /* Use cached config if it is available: */
+        if(internal_status && config_cache_exists(internal_status))
+        {
+            cfg = internal_status->config_cache;
+        }
+        else
+        { 	/* Read a conf file and cache it.*/
+            ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
+            std::shared_ptr<FILE> conffile(new FILE);
+            ERROR_IF_CAMWIRE_FAIL(find_conf_file(identifier, conffile));
+            if (conffile)
+            {
+                ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
+                fclose(conffile.get());
+                if (internal_status && internal_status->config_cache)
+                { /* A camera has been created (not strictly necessary).*/
+                    internal_status->config_cache = cfg;
+                }
+            }
+            else
+            {
+                std::cerr << std::endl <<
+                "Camwire could not find a hardware configuration file.\n"
+                "Generating a default configuration..." << std::endl;
+                    ERROR_IF_CAMWIRE_FAIL(
+                    generate_default_config(c_handle, cfg));
+                std::cout << std::endl <<
+                "----------------------------------------------------------------" << std::endl;
+
+                    ERROR_IF_CAMWIRE_FAIL(
+                    write_config_to_output(cfg));
+
+                std::cout << std::endl <<
+                "----------------------------------------------------------------\n"
+                "\n"
+                "This is a best guess of the camera and its bus's hardware\n"
+                "configuration.  See README_conf in the Camwire distribution for\n"
+                "details.\n\n"
+                "To create a configuration file, copy the text between (but not\n"
+                "including) the ----- lines into a file (and edit as needed).\n"
+                "The filename must be identical to one of the camera's ID strings\n"
+                "(as may be obtained from camwire_get_identifier()) appended by\n"
+                "an extension of \".conf\".\n\n"
+                "For the current camera suitable filenames are: \n" <<
+                identifier.chip << ".conf \t(chip)" << std::endl <<
+                identifier.model << ".conf \t(model)" << std::endl <<
+                identifier.vendor << ".conf \t(vendor)\n"
+                "Camwire checks for filenames like these in this\n"
+                "chip-model-vendor order.  It first looks for the three filenames\n"
+                "in the current working directory and after that in a directory\n"
+                "given by the CAMWIRE_CONF environment variable.\n\n" << std::endl;
+                return CAMWIRE_FAILURE;
+            }
+        }
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve camera configuration");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camera_handle camera = c_handle->camera;
+        identifier.vendor = camera.get()->vendor;
+        identifier.model = camera.get()->model;
+        identifier.chip = std::to_string(camera.get()->guid);
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to get identifier");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2929,6 +3016,7 @@ int camwire::camwire::get_run_stop(const Camwire_bus_handle_ptr &c_handle, int &
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve running state");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2937,10 +3025,42 @@ int camwire::camwire::get_gain(const Camwire_bus_handle_ptr &c_handle, double &g
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        gain = shadow_state->gain;
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_GAIN));
+        if(!feature_is_usable(cap))
+            /* Camera has no usable gain:*/
+            return CAMWIRE_SUCCESS; /* Return shadow values.*/
+
+        uint32_t gain_reg;
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_value(c_handle->camera.get(), DC1394_FEATURE_GAIN, &gain_reg));
+
+            if(static_cast<int>(gain_reg) >= cap->min && static_cast<int>(gain_reg) <= cap->max)
+            {
+                if(cap->max != cap->min)
+                    gain = static_cast<double>((gain_reg - cap->min) / (cap->max - cap->min));
+                else
+                    gain = 0.0;
+            }
+            else
+            {
+                DPRINTF("Invalid gain min and max values");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->gain = gain;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve gain");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2949,10 +3069,40 @@ int camwire::camwire::get_brightness(const Camwire_bus_handle_ptr &c_handle, dou
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        brightness = shadow_state->brightness;
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_BRIGHTNESS));
+        if(!feature_is_usable(cap))
+            /* Camera has no usable brightness:*/
+            return CAMWIRE_SUCCESS; /* Return shadow values.*/
+
+        uint32_t brightness_reg;
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_value(c_handle->camera.get(), DC1394_FEATURE_BRIGHTNESS, &brightness_reg));
+            if(static_cast<int>(brightness_reg) >= cap->min && static_cast<int>(brightness_reg) <= cap->max)
+            {
+                if(cap->max != cap->min)
+                    brightness = 2.0 * static_cast<double>((brightness_reg - cap->min)) / (cap->max - cap->min) - 1.0;
+                else
+                    brightness = 0.0;
+            }
+            else
+            {
+                DPRINTF("Invalid brightness min and max values");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->brightness = brightness;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve brightness value");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2961,6 +3111,27 @@ int camwire::camwire::get_trigger_polarity(const Camwire_bus_handle_ptr &c_handl
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        rising = shadow_state->trigger_polarity;
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_TRIGGER));
+        if(!feature_is_usable(cap))
+            /* Camera has no usable trigger:*/
+            return CAMWIRE_SUCCESS; /* Return shadow values.*/
+
+        dc1394trigger_polarity_t polarity;
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_external_trigger_get_polarity(c_handle->camera.get(), &polarity));
+            if(polarity == DC1394_TRIGGER_ACTIVE_LOW)
+                rising = 0;
+            else
+                rising = 1;
+
+            shadow_state->trigger_polarity = rising;
+        }
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
@@ -2973,10 +3144,33 @@ int camwire::camwire::get_trigger_source(const Camwire_bus_handle_ptr &c_handle,
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        external = shadow_state->external_trigger;
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_TRIGGER));
+        if(!feature_is_usable(cap))
+            /* Camera has no usable trigger:*/
+            return CAMWIRE_SUCCESS; /* Return shadow values.*/
+
+        dc1394switch_t trigger_on;
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_external_trigger_get_power(c_handle->camera.get(), &trigger_on));
+            if(trigger_on == DC1394_OFF)
+                external = 0;
+            else
+                external = 1;
+
+            shadow_state->external_trigger = external;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve trigger source");
         return CAMWIRE_FAILURE;
     }
 }
@@ -2985,58 +3179,228 @@ int camwire::camwire::get_shutter(const Camwire_bus_handle_ptr &c_handle, double
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        shutter = shadow_state->shutter;
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_SHUTTER));
+        if(!feature_is_usable(cap))
+            /* Camera has no usable shutter:*/
+            return CAMWIRE_SUCCESS; /* Return shadow values.*/
+
+        uint32_t shutter_reg;
+        Camwire_conf_ptr config(new Camwire_conf);
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_feature_get_value(c_handle->camera.get(), DC1394_FEATURE_SHUTTER, &shutter_reg));
+            ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+            shutter = config->exposure_offset + shutter_reg * config->exposure_quantum;
+
+            shadow_state->shutter = shutter;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve shutter");
         return CAMWIRE_FAILURE;
     }
 }
 
-int camwire::camwire::get_framerate(const Camwire_bus_handle_ptr &c_handle, double &framerate)
+/* In Formats 0, 1 and 2, the frame rate is stored in the camera as an
+   index, which we translate into a frame rate in frames per second.
+
+   In format 7, the camera's frame rate index is ignored.  One has to
+   calculate the frame rate from the number of packets required to send
+   one frame.  For example, since exactly one packet is sent every 125
+   microseconds (assuming bus speed of 400 Mb/s), the frame rate is
+   1/(num_packets*125us).  The camera calculates num_packets and we read
+   it from a register called PACKET_PER_FRAME_INQ.
+*/
+int camwire::camwire::get_framerate(const Camwire_bus_handle_ptr &c_handle, double &frame_rate)
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        frame_rate = shadow_state->frame_rate;
+
+        dc1394video_mode_t video_mode;
+        dc1394framerate_t frame_rate_index;
+        uint32_t num_packets;
+
+        if(!shadow_state->shadow)
+        {
+            video_mode = get_1394_video_mode(c_handle);
+            ERROR_IF_ZERO(video_mode);
+            if (fixed_image_size(video_mode))  /* Format 0, 1 or 2.*/
+            {
+                ERROR_IF_DC1394_FAIL(dc1394_video_get_framerate(c_handle->camera.get(), &frame_rate_index));
+                frame_rate = convert_index2framerate(frame_rate_index);
+                if (frame_rate < 0.0)
+                {
+                    DPRINTF("convert_index2framerate() failed.");
+                    return CAMWIRE_FAILURE; 	/* Invalid index.*/
+                }
+            }
+            else if (variable_image_size(video_mode))  /* Format 7.*/
+            {
+                /* It is safe to call get_numpackets() because we are not
+                   changing the image_size or color_id: */
+                ERROR_IF_CAMWIRE_FAIL(get_numpackets(c_handle, num_packets));
+                frame_rate = convert_numpackets2framerate(c_handle, num_packets);
+            }
+            else
+            {
+                DPRINTF("Unsupported camera format.");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->frame_rate = frame_rate;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve framerate");
         return CAMWIRE_FAILURE;
     }
 }
 
-int camwire::camwire::get_pixel_tiling(const Camwire_bus_handle_ptr &c_handle, camwire::Camwire_tiling &tiling)
+
+int camwire::camwire::get_pixel_tiling(const Camwire_bus_handle_ptr &c_handle, Camwire_tiling &tiling)
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        tiling = shadow_state->tiling;
+        dc1394video_mode_t video_mode;
+        if(!shadow_state->shadow)
+        {
+            video_mode = get_1394_video_mode(c_handle);
+            ERROR_IF_ZERO(video_mode);
+            if(fixed_image_size(video_mode))
+                tiling = CAMWIRE_TILING_INVALID;
+            else if(variable_image_size(video_mode))
+                tiling = probe_camera_tiling(c_handle);
+            else
+            {
+                DPRINTF("Unsupported camera format.");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->tiling = tiling;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve pixel tiling");
         return CAMWIRE_FAILURE;
     }
 }
 
-int camwire::camwire::get_pixel_coding(const Camwire_bus_handle_ptr &c_handle, camwire::Camwire_pixel &coding)
+
+int camwire::camwire::get_pixel_coding(const Camwire_bus_handle_ptr &c_handle, Camwire_pixel &coding)
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        coding = shadow_state->coding;
+
+        dc1394video_mode_t video_mode;
+        dc1394color_coding_t color_id;
+        if(!shadow_state->shadow)
+        {
+            video_mode = get_1394_video_mode(c_handle);
+            ERROR_IF_ZERO(video_mode);
+            if(fixed_image_size(video_mode))
+                coding = convert_videomode2pixelcoding(video_mode);
+            else if(variable_image_size(video_mode))
+            {
+                ERROR_IF_DC1394_FAIL(dc1394_format7_get_color_coding(c_handle->camera.get(), video_mode, &color_id));
+                coding = convert_colorid2pixelcoding(color_id);
+            }
+            else
+            {
+                DPRINTF("Unsupported camera format.");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->coding = coding;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve pixel coding");
         return CAMWIRE_FAILURE;
     }
 }
+
 
 int camwire::camwire::get_frame_size(const Camwire_bus_handle_ptr &c_handle, int &width, int &height)
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        width = shadow_state->width;
+        height = shadow_state->height;
+
+        dc1394video_mode_t video_mode;
+        std::shared_ptr<dc1394video_frame_t> capture_frame(new dc1394video_frame_t);
+        uint32_t width_val, height_val;
+
+        if(!shadow_state->shadow)
+        {
+            video_mode = get_1394_video_mode(c_handle);
+            ERROR_IF_ZERO(video_mode);
+            if(fixed_image_size(video_mode))
+            {
+                ERROR_IF_CAMWIRE_FAIL(get_captureframe(c_handle, capture_frame));
+                if(capture_frame->size[0] == 0 || capture_frame->size[1] == 0)
+                {
+                    DPRINTF("dc1394video_frame_t containes a zero frame size");
+                    return CAMWIRE_FAILURE;
+                }
+                width = capture_frame->size[0];
+                height = capture_frame->size[1];
+            }
+            else if(variable_image_size(video_mode))
+            {
+                ERROR_IF_DC1394_FAIL(dc1394_format7_get_image_size(c_handle->camera.get(),
+                            video_mode,
+                            &width_val,
+                            &height_val));
+                width = width_val;
+                height = height_val;
+            }
+            else
+            {
+                DPRINTF("Unsupported camera format.");
+                return CAMWIRE_FAILURE;
+            }
+
+            shadow_state->width = width;
+            shadow_state->height = height;
+        }
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve frame size");
         return CAMWIRE_FAILURE;
     }
 }
@@ -3045,10 +3409,48 @@ int camwire::camwire::get_frame_offset(const Camwire_bus_handle_ptr &c_handle, i
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        left = shadow_state->left;
+        top = shadow_state->top;
+
+        dc1394video_mode_t video_mode;
+        uint32_t left_val, top_val;
+
+        if(!shadow_state->shadow)
+        {
+            video_mode = get_1394_video_mode(c_handle);
+            ERROR_IF_ZERO(video_mode);
+            if(fixed_image_size(video_mode))
+            {
+                left = top = 0;
+            }
+            else if(variable_image_size(video_mode))
+            {
+                ERROR_IF_DC1394_FAIL(dc1394_format7_get_image_position(c_handle->camera.get(),
+                            video_mode,
+                            &left_val,
+                            &top_val));
+                left = left_val;
+                top = top_val;
+            }
+            else
+            {
+                DPRINTF("Unsupported camera format.");
+                return CAMWIRE_FAILURE;
+            }
+
+            shadow_state->left = left;
+            shadow_state->top = top;
+        }
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve frame offset");
         return CAMWIRE_FAILURE;
     }
 }
@@ -3057,10 +3459,18 @@ int camwire::camwire::get_framebuffer_lag(const Camwire_bus_handle_ptr &c_handle
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        std::shared_ptr<dc1394video_frame_t> capture_frame(new dc1394video_frame_t);
+        if(!capture_frame)
+            buffer_lag = 0;
+        else
+            buffer_lag = capture_frame->frames_behind;
+
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve buffer lag");
         return CAMWIRE_FAILURE;
     }
 }
@@ -3069,10 +3479,34 @@ int camwire::camwire::get_stateshadow(const Camwire_bus_handle_ptr &c_handle, in
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        shadow = shadow_state->shadow;
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
+        DPRINTF("Failed to retrieve state shadow");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_num_framebuffers(const Camwire_bus_handle_ptr &c_handle, int &num_frame_buffers)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        num_frame_buffers = internal_status->num_dma_buffers;
+        shadow_state->num_frame_buffers = num_frame_buffers;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve num framebuffers");
         return CAMWIRE_FAILURE;
     }
 }

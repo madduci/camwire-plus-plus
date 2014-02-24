@@ -56,22 +56,97 @@ namespace camwire
                init() or initFromStruct().  All camera
                settings are lost.*/
             int destroy(const Camwire_bus_handle_ptr &c_handle);
-
-            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
-
+            /* Tries to flush num_to_flush buffered frames.  If num_flushed is not
+               the null pointer, the actual number of frames flushed is returned in
+               *num_flashed.  *num_flushed will be less than num_to_flush if there
+               were fewer buffered frames available to flush than requested.
+               *num_flushed will never be more than num_to_flush.  It is safe to
+               make num_to_flush a larger number than the total number of buffered
+               frames.  If buffer_lag is not the null pointer, the number of bus
+               frame buffers by which we are behind after flushing is returned in
+               *buffer_lag.  This is the same number as can be obtained from
+               camwire_get_framebuffer_lag().  *buffer_lag is only valid if
+               num_to_flush was 1 or more.  The historically older frames are
+               flushed first.  Frames currently being transmitted by the camera are
+               not affected.  Any frames accessed by camwire_point_next_frame() or
+               camwire_point_next_frame_poll() should first be released with
+               camwire_unpoint_frame() before flushing.  If you want to be sure of
+               completely emptying all bus frame buffers, you should stop the
+               camera, wait for more than one frame transmission period and then
+               flush.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure. */
+            int flush_framebuffers(const Camwire_bus_handle_ptr &c_handle, const int num_to_flush, int &num_flushed, int &buffer_lag);
+            /* Waits until a frame has been received and copies it into the given
+               buffer.  All 16-bit camwire images are in network (big-endian) byte
+               order.  Note that this function may never return to the calling
+               program if a frame does not become available, for example if the
+               camera is not running or an external trigger does not arrive.  If
+               more than one frame are buffered when this function is called then
+               the earliest frame is copied.  If buffer_lag is not the null pointer,
+               the number of bus frame buffers by which we are behind is returned in
+               *buffer_lag.  This is the same number as can be obtained from
+               camwire_get_framebuffer_lag().  The frame's number and time stamp are
+               available afterwards from camwire_get_framenumber() and
+               camwire_get_timestamp().  If speed is important then
+               camwire_point_next_frame() or camwire_point_next_frame_poll() might
+               be faster.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure. */
+            int copy_next_frame(const Camwire_bus_handle_ptr &c_handle, void *buffer, int &buffer_lag);
+            /* Sets the given buffer pointer buf_ptr to the next received frame
+               buffer.  If a frame is ready it returns immediately, otherwise it
+               waits until a frame has been received.  All 16-bit camwire images are
+               in network (big-endian) byte order.  Note that this function may
+               never return to the calling program if a frame does not become
+               available, for example if the camera is not running or an external
+               trigger does not arrive.  The frame buffer is locked, which prevents
+               it from being overwritten by subsequent frames.  The calling program
+               may freely read and write the buffer.  If more than one frames are
+               buffered when this function is called then buf_ptr points to the
+               earliest frame.  If buffer_lag is not the null pointer, the number of
+               bus frame buffers by which we are behind is returned in *buffer_lag.
+               This is the same number as can be obtained from
+               camwire_get_framebuffer_lag().  The frame's number and time stamp are
+               available afterwards from camwire_get_framenumber() and
+               camwire_get_timestamp().  This function may be faster than
+               camwire_copy_next_frame() because no copying is involved.  The
+               downside is that the function camwire_unpoint_frame() must be called
+               each time when done to release the frame buffer again.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int point_next_frame(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag);
+            /* Sets the given buffer pointer buf_ptr to the next received frame
+               buffer and returns immediately.  If no frame is ready it sets buf_ptr
+               to the null pointer and returns 0 in *buffer_lag.  All 16-bit camwire
+               images are in network (big-endian) byte order.  Although it may not
+               always return a frame pointer, this function always returns to the
+               calling program even if a frame does not become available.  Otherwise
+               its behaviour is similar to camwire_point_next_frame().  Note that
+               the values returned from camwire_get_framenumber() and
+               camwire_get_timestamp() are not valid if no frame was returned.  Like
+               camwire_point_next_frame(), the function camwire_unpoint_frame() must
+               be called each time a frame is obtained to release the frame buffer
+               again.  If no frame was obtained then camwire_unpoint_frame() should
+               not be called.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure. */
+            int point_next_frame_poll(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag);
+            /* Releases the bus frame buffer that was pointed to with the pointer
+               access functions camwire_point_next_frame() or
+               camwire_point_next_frame_poll(), so that it can be used again for
+               receiving new image data.  Calls to pointer access functions and
+               camwire_unpoint_frame() should be strictly interleaved, otherwise the
+               next call to a pointer access function will fail.
+               camwire_unpoint_frame() itself is however safe to call if no frame is
+               locked in which case it has no effect.  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure. */
+            int unpoint_frame(const Camwire_bus_handle_ptr &c_handle);
+            /* Sets the camera run status in runsts: 1 for running or 0 for stopped.
+               If a stopped camera is set to running while the acquisition type (as
+               set by camwire_set_single_shot()) is single-shot, then only one frame
+               is transmitted (pending an external trigger if used) after which the
+               camera reverts to the stopped state.  Otherwise, frames are
+               transmitted from camera to bus frame buffers at the programmed frame
+               rate until the camera is stopped.  Returns CAMWIRE_SUCCESS on success
+               or CAMWIRE_FAILURE on failure. */
             int set_run_stop(const Camwire_bus_handle_ptr &c_handle, const int runsts = 0);
-            /* Gets the camera and its bus's static configuration settings for
-               initialization from a configuration file.  They are bus-specific
-               hardware parameters that the casual user need not know or care about.
-               If a configuration file does not exist, an error message is printed which includes a
-               best-guess default configuration. */
-            int get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg);
-            /* Fills in the given camwire identifier structure.
-               The identifier is uniquely and permanently associated with the camera
-               hardware, such as might be obtained from configuration ROM data.
-               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
-
             /* Sets the state shadow flag: 1 to get camera settings from an internal
                shadow structure or 0 to read them directly from the camera hardware.
                Setting state shadowing may result in faster camera responses and may
@@ -170,7 +245,32 @@ namespace camwire
                can't be sure if the single frame acquisition has started and hence
                you don't know whether the camera is stopped or running.  Returns
                CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int single_shot_on);
+            int set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int &single_shot_on);
+            /* Sets the number of frame reception buffers allocated for the camera
+               bus in the host computer.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure. */
+            int set_num_framebuffers(const Camwire_bus_handle_ptr &c_handle, const int &num_frame_buffers);
+            /* Gets the camera's current settings (running/stopped, trigger source,
+               frame rate, frame size, etc).  If the camera has not been created,
+               the camera is physically reset to factory default settings and those
+               are probed and returned (without creating the camera).  If the camera
+               has been created and the state shadow flag is set, the shadow state
+               settings are returned, else the camera is queried for current
+               settings.  If the camera does not support some settings their
+               returned values are undefined.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure.*/
+            int get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
+            /* Gets the camera and its bus's static configuration settings for
+               initialization from a configuration file.  They are bus-specific
+               hardware parameters that the casual user need not know or care about.
+               If a configuration file does not exist, an error message is printed which includes a
+               best-guess default configuration. */
+            int get_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg);
+            /* Fills in the given camwire identifier structure.
+               The identifier is uniquely and permanently associated with the camera
+               hardware, such as might be obtained from configuration ROM data.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
             /* Gets the camera's colour correction setting corr_on, 1 for
                colour-corrected or 0 for no correction or if the camera is not
                capable of colour correction.  So far Camwire supports colour
@@ -234,7 +334,7 @@ namespace camwire
             /* Gets the video frame rate in frames per second.  See the description
                of the meaning of 'frame rate' under camwire_set_framerate().
                Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int get_framerate(const Camwire_bus_handle_ptr &c_handle, double &framerate);
+            int get_framerate(const Camwire_bus_handle_ptr &c_handle, double &frame_rate);
             /* Gets the pixel tiling, as one of the Camwire_tiling enumeration
                members above.  The tiling is not a typical camera setting because it
                is not settable and hence there is no camwire_set_pixel_tiling()
@@ -254,9 +354,9 @@ namespace camwire
             /* Warning: The use of this function is deprecated because it creates
                the impression that it returns a currently fresh measure of the
                buffer lag.  Rather use the buffer_lag returned by calls to
-               camwire_copy_next_frame(), camwire_point_next_frame(),
-               camwire_point_next_frame_poll(), and calls to
-               camwire_flush_framebuffers() with argument num_to_flush >= 1.
+               copy_next_frame(), point_next_frame(),
+               point_next_frame_poll(), and calls to
+               flush_framebuffers() with argument num_to_flush >= 1.
                Ideally it should get the number of bus frame buffers which have been
                filled by the camera but not yet accessed or, in other words, the
                number of frames by which we are behind.  In the current
@@ -268,6 +368,10 @@ namespace camwire
                shadow structure or 0 to read them directly from the camera hardware.
                Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure.*/
             int get_stateshadow(const Camwire_bus_handle_ptr &c_handle, int &shadow);
+            /* Gets the number of frame reception buffers allocated for the camera
+               bus in the host computer.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure. */
+            int get_num_framebuffers(const Camwire_bus_handle_ptr &c_handle, int &num_frame_buffers);
 
         /* Set to protected in case of Subclassing */
         protected:
