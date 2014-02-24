@@ -268,11 +268,6 @@ namespace camwire
                shadow structure or 0 to read them directly from the camera hardware.
                Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure.*/
             int get_stateshadow(const Camwire_bus_handle_ptr &c_handle, int &shadow);
-            /* Fills in the given camwire identifier structure (type defined above).
-               The identifier is uniquely and permanently associated with the camera
-               hardware, such as might be obtained from configuration ROM data.
-               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
 
         /* Set to protected in case of Subclassing */
         protected:

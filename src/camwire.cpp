@@ -2655,3 +2655,424 @@ int camwire::camwire::set_single_shot(const Camwire_bus_handle_ptr &c_handle, co
         return CAMWIRE_FAILURE;
     }
 }
+
+int camwire::camwire::get_colour_correction(const Camwire_bus_handle_ptr &c_handle, int &corr_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        corr_on = shadow_state->colour_corr;
+
+        if (!internal_status->extras->colour_corr_capable)
+        {
+            /* Camera has no colour correction.  Return the default corr-on of 0: */
+            return CAMWIRE_SUCCESS;
+        }
+
+        int32_t val[9];
+        double coef[9];
+        dc1394bool_t on_off;
+        if (!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_avt_get_color_corr(c_handle->camera.get(), &on_off,
+                              &val[0], &val[1], &val[2],
+                              &val[3], &val[4], &val[5],
+                              &val[6], &val[7], &val[8]));
+
+            /* Note 0 means on (see AVT Stingray Tech Manual).  There is a
+               bug in dc1394_avt_get_color_corr() &
+               dc1394_avt_get_advanced_feature_inquiry() v2.1.2.*/
+            corr_on = (on_off == DC1394_FALSE);
+            shadow_state->colour_corr = corr_on;
+            convert_avtvalues2colourcoefs(val, coef);
+            memcpy(shadow_state->colour_coef, coef, 9*sizeof(coef[0]));
+        }
+        return CAMWIRE_SUCCESS;
+
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve colour corrections");
+        corr_on = 0;
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_colour_coefficients(const Camwire_bus_handle_ptr &c_handle, double coef[9])
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        memcpy(coef, shadow_state->colour_coef, 9*sizeof(coef[0]));
+        if (!internal_status->extras->colour_corr_capable)
+        {
+            /* Camera cannot change colour correction coefficients: */
+            return CAMWIRE_SUCCESS;
+        }
+
+        dc1394bool_t on_off;
+        int32_t val[9];
+
+        if (!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_avt_get_color_corr(c_handle->camera.get(),
+                              &on_off,
+                              &val[0], &val[1], &val[2],
+                              &val[3], &val[4], &val[5],
+                              &val[6], &val[7], &val[8]));
+            convert_avtvalues2colourcoefs(val, coef);
+            memcpy(shadow_state->colour_coef, coef, 9*sizeof(coef[0]));
+            /* Note 0 means on (see AVT Stingray Tech Manual).  There is a
+                   bug in dc1394_avt_get_color_corr() &
+                   dc1394_avt_get_advanced_feature_inquiry() v2.1.2.*/
+            shadow_state->colour_corr = (on_off == DC1394_FALSE);
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve colour coefficients");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_gamma(const Camwire_bus_handle_ptr &c_handle, int &gamma_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        if (!internal_status->extras->gamma_capable)
+        {
+            /* Camera cannot change colour correction coefficients: */
+            return CAMWIRE_SUCCESS;
+        }
+
+        dc1394bool_t lut_set;
+        uint32_t lut_num;
+        if (!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_avt_get_lut(c_handle->camera.get(), &lut_set, &lut_num));
+            if (lut_set == DC1394_TRUE)
+                gamma_on = 1;
+            else
+                gamma_on = 0;
+            shadow_state->gamma = gamma_on;
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve gamma value");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_white_balance(const Camwire_bus_handle_ptr &c_handle, double bal[2])
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        bal[0] = shadow_state->white_balance[0];
+        bal[1] = shadow_state->white_balance[1];
+
+        std::shared_ptr<dc1394feature_info_t> cap(new dc1394feature_info_t);
+        ERROR_IF_CAMWIRE_FAIL(get_feature_capability(c_handle, cap, DC1394_FEATURE_WHITE_BALANCE));
+        if(!feature_is_usable(cap))
+            return CAMWIRE_SUCCESS; /* Camera has no usable white balance:*/ /* Return shadow values.*/
+
+        uint32_t blue_reg, red_reg;
+        if(!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_feature_whitebalance_get_value(c_handle->camera.get(), &blue_reg, &red_reg));
+            if (static_cast<int>(blue_reg) >= cap->min && static_cast<int>(blue_reg) <= cap->max && static_cast<int>(red_reg) >= cap->min && static_cast<int>(red_reg) <= cap->max)
+            {
+                if (cap->max != cap->min)
+                {
+                    bal[0] = static_cast<double>((blue_reg - cap->min)/(cap->max - cap->min));
+                    bal[1] = static_cast<double>((red_reg - cap->min)/(cap->max - cap->min));
+                }
+                else
+                {
+                    bal[0] = bal[1] = 0.0;
+                }
+            }
+            else
+            {
+                DPRINTF("Invalid white balance min and max values");
+                return CAMWIRE_FAILURE;
+            }
+            shadow_state->white_balance[0] = bal[0];
+            shadow_state->white_balance[1] = bal[1];
+        }
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_single_shot(const Camwire_bus_handle_ptr &c_handle, int &single_shot_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        single_shot_on = shadow_state->single_shot;
+
+        if(!internal_status->extras->single_shot_capable)
+            return CAMWIRE_SUCCESS; /* Camera has no single-shot:*/
+
+        dc1394switch_t iso_en;
+        dc1394bool_t one_shot_set;
+        if(!shadow_state->shadow)
+        {
+            if (iso_en == DC1394_ON)
+            {  /* Running in continuous mode.*/
+                shadow_state->running = 1;
+                single_shot_on = 0;
+            }
+            else
+            {  /* Running in single-shot mode or stopped.*/
+                ERROR_IF_DC1394_FAIL(dc1394_video_get_one_shot(c_handle->camera.get(), &one_shot_set));
+                if (one_shot_set == DC1394_TRUE)
+                {  /* Camera is running.*/
+                    shadow_state->running = 1;
+                    single_shot_on = 1;
+                }
+                else
+                {  /* Camera is stopped.*/
+                    shadow_state->running = 0;
+                    single_shot_on = shadow_state->single_shot;  /* Remember.*/
+                }
+            }
+            shadow_state->single_shot = single_shot_on;
+        }
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to retrieve single shot mode");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_run_stop(const Camwire_bus_handle_ptr &c_handle, int &runsts)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+
+        dc1394switch_t iso_en;
+        dc1394bool_t one_shot_set;
+        if(shadow_state->shadow)
+        {
+            runsts = shadow_state->running;
+            /* One_Shot register self-clears after transmission: */
+            if(shadow_state->running && shadow_state->single_shot)
+            {
+                /* Don't know if camera is still runnning: let's find out: */
+                ERROR_IF_DC1394_FAIL(dc1394_video_get_one_shot(c_handle->camera.get(), &one_shot_set));
+                if (one_shot_set == DC1394_FALSE)
+                {  /* Camera has finished single shot: update shadow state: */
+                    shadow_state->running = runsts = 0;
+                }
+            }
+        }
+        else /* Don't use shadow: ask the camera: */
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_video_get_transmission(c_handle->camera.get(), &iso_en));
+            if(iso_en == DC1394_ON)
+            {
+                /* Camera is running in continuous mode: */
+                shadow_state->single_shot = 0;
+                runsts = 1;
+            }
+            else
+            {
+                runsts = 0;
+                if(internal_status->extras->single_shot_capable)
+                {
+                    ERROR_IF_DC1394_FAIL(dc1394_video_get_one_shot(c_handle->camera.get(), &one_shot_set));
+                    if(one_shot_set == DC1394_TRUE)
+                    {
+                        /* Camera is running in single-shot mode: */
+                        shadow_state->single_shot = 1;
+                        runsts = 1;
+                    }
+                }
+            }
+            shadow_state->running = runsts;
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_gain(const Camwire_bus_handle_ptr &c_handle, double &gain)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_brightness(const Camwire_bus_handle_ptr &c_handle, double &brightness)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_trigger_polarity(const Camwire_bus_handle_ptr &c_handle, int &rising)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_trigger_source(const Camwire_bus_handle_ptr &c_handle, int &external)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_shutter(const Camwire_bus_handle_ptr &c_handle, double &shutter)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_framerate(const Camwire_bus_handle_ptr &c_handle, double &framerate)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_pixel_tiling(const Camwire_bus_handle_ptr &c_handle, camwire::Camwire_tiling &tiling)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_pixel_coding(const Camwire_bus_handle_ptr &c_handle, camwire::Camwire_pixel &coding)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_frame_size(const Camwire_bus_handle_ptr &c_handle, int &width, int &height)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_frame_offset(const Camwire_bus_handle_ptr &c_handle, int &left, int &top)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_framebuffer_lag(const Camwire_bus_handle_ptr &c_handle, int &buffer_lag)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::get_stateshadow(const Camwire_bus_handle_ptr &c_handle, int &shadow)
+{
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        return CAMWIRE_FAILURE;
+    }
+}
