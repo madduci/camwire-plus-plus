@@ -1965,17 +1965,92 @@ int camwire::camwire::flush_framebuffers(const Camwire_bus_handle_ptr &c_handle,
 
 int camwire::camwire::copy_next_frame(const Camwire_bus_handle_ptr &c_handle, void *buffer, int &buffer_lag)
 {
+    try
+    {
+        ERROR_IF_NULL(c_handle);
 
+        void *buf_ptr;
+        ERROR_IF_CAMWIRE_FAIL(point_next_frame(c_handle, &buf_ptr, buffer_lag));
+
+        /*  Copy the minimum number of bytes to avoid segfaults if the user's
+            frame buffer is only just big enough to take one frame.  Note
+            that internal_status->frame->total_bytes should not be used
+            because it may include padding that the user has not made
+            provision for: */
+        int width, height, depth;
+        Camwire_pixel coding;
+
+        ERROR_IF_CAMWIRE_FAIL(get_frame_size(c_handle, width, height));
+        ERROR_IF_CAMWIRE_FAIL(get_pixel_coding(c_handle, coding));
+        ERROR_IF_CAMWIRE_FAIL(pixel_depth(coding, depth));
+        memcpy(buffer, buf_ptr, (size_t) width*height*depth/8);
+        unpoint_frame(c_handle);
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to copy next frame");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag)
 {
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
 
+        if(internal_status->frame_lock)
+        {
+            DPRINTF("Can't point to new frame before unpointing previous frame.");
+            return CAMWIRE_FAILURE;
+        }
+
+        dc1394video_frame_t *frame = internal_status->frame.get();
+        int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_WAIT, &frame);
+        if(dc1394_return != DC1394_SUCCESS)
+        {
+            internal_status->frame = 0;
+            DPRINTF("dc1394_capture_dequeue() failed");
+            return CAMWIRE_FAILURE;
+        }
+
+        ERROR_IF_NULL(internal_status->frame);
+        *buf_ptr = (void *)internal_status->frame->image;
+        internal_status->frame_lock = 1;
+
+        /*  Record buffer timestamp for later use by camwire_get_timestamp(),
+            because we don't want to assume that dc1394_capture_enqueue()
+            does not mess with its frame arg:*/
+        internal_status->dma_timestamp = internal_status->frame->timestamp*1.0e-6;
+
+        /* Increment the frame number if we have a frame: */
+        ++internal_status->frame_number;
+
+        if(buffer_lag)
+            ERROR_IF_CAMWIRE_FAIL(get_framebuffer_lag(c_handle, buffer_lag));
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to copy next frame");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_handle, void **buf_ptr, int &buffer_lag)
 {
+    try
+    {
 
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to point next frame poll");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::unpoint_frame(const Camwire_bus_handle_ptr &c_handle)
