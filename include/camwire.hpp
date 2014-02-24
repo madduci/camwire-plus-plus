@@ -146,6 +146,133 @@ namespace camwire
                on failure or if the camera is not capable of setting colour
                coefficients. */
             int set_colour_coefficients(const Camwire_bus_handle_ptr &c_handle, const double coef[9]);
+            /* Sets the camera's gamma setting in gamma_on: 1 for gamma-corrected or
+               0 for linear pixel values.  Camwire assumes that gamma correction
+               non-linearly compresses the camera's 10 or 12-bit internal data path
+               into 8 bits per pixel component, according to the Rec.709
+               specification.  To use gamma, the current pixel coding should
+               therefore have 8 bits per component (such as CAMWIRE_PIXEL_MONO8,
+               CAMWIRE_PIXEL_YUV422 or CAMWIRE_PIXEL_RGB8, but not
+               CAMWIRE_PIXEL_MONO16 etc.).  So far Camwire supports gamma in AVT
+               cameras only.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure or if the camera is not capable of gamma correction or if
+               gamma correction is not supported for the current pixel coding. */
+            int set_gamma(const Camwire_bus_handle_ptr &c_handle, const int gamma_on);
+            /* Sets the camera's acquisition type in single_shot_on: 1 for
+               single-shot or 0 for continuous.  To capture a single frame, make
+               sure that the camera is stopped, set the acquisition type to
+               single-shot, and set the camera running (with camwire_set_run_stop())
+               at the moment the frame is needed.  If the camera is already running
+               while changing acquisition type from continous to single-shot, then
+               the single frame is acquired immediately (pending an external trigger
+               if used).  Changing acquisition type from single-shot to continuous
+               while the camera is running is an unreliable thing to do, because you
+               can't be sure if the single frame acquisition has started and hence
+               you don't know whether the camera is stopped or running.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int single_shot_on);
+            /* Gets the camera's colour correction setting corr_on, 1 for
+               colour-corrected or 0 for no correction or if the camera is not
+               capable of colour correction.  So far Camwire supports colour
+               correction in AVT cameras only.  Returns CAMWIRE_SUCCESS on success
+               or CAMWIRE_FAILURE on failure. */
+            int get_colour_correction(const Camwire_bus_handle_ptr &c_handle, int &corr_on);
+            /* Gets the camera's colour correction coefficients.  coef is an array
+               of 9 colour correction coefficients, see the description of the
+               colour_coef member of Camwire_state above.  If the camera is not
+               capable of colour correction, coef forms the 3x3 identity matrix.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_colour_coefficients(const Camwire_bus_handle_ptr &c_handle, double coef[9]);
+            /* Gets the camera's gamma setting in gamma_on: 1 for gamma-corrected or
+               0 for linear pixel values or if the camera is not capable of gamma
+               correction.  So far Camwire supports gamma in AVT cameras only.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_gamma(const Camwire_bus_handle_ptr &c_handle, int &gamma_on);
+            /* Gets the white balance levelss (blue or U, red or V) for colour
+               cameras.  bal contains relative numbers between 0.0 and 1.0,
+               corresponding respectively to the minimum and maximum levels
+               implemented by the camera.  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure. */
+            int get_white_balance(const Camwire_bus_handle_ptr &c_handlee, double bal[2]);
+            /* Gets the camera's acquisition type setting in single_shot_on: 1 for
+               single-shot or 0 for continuous or if the camera is not capable of
+               single-shot.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure. */
+            int get_single_shot(const Camwire_bus_handle_ptr &c_handle, int &single_shot_on);
+            /* Gets the camera run status in runsts: 1 for running or 0 for stopped.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_run_stop(const Camwire_bus_handle_ptr &c_handle, int &runsts);
+            /* Gets the relative gain factor (response slope) of the camera, as a
+               number between 0.0 (minimum) and 1.0 (maximum).  The user has to
+               interpret the meaning of this relative gain in terms of the
+               individual camera's specification of its minimum and maximum settable
+               slope.  For example, if the camera specifies the minimum gain as a
+               slope of 1.0 (0dB) and the maximum as 4.0 (12dB), then the actual
+               gain is (4.0 - 1.0)*gain + 1.0.  Returns CAMWIRE_SUCCESS on success
+               or CAMWIRE_FAILURE on failure. */
+            int get_gain(const Camwire_bus_handle_ptr &c_handle, double &gain);
+            /* Gets the relative brightness (black level) of the camera, as a number
+               between -1.0 (minimum) and +1.0 (maximum).  The user has to interpret
+               the meaning of this relative brightness in terms of the individual
+               camera's specification of its minimum and maximum settable
+               brightness.  For example, if the camera specifies the minimum
+               brightness level as 0 and the maximum as 1023, then the actual
+               brightness level is (1023 - 0)*(brightness + 1.0)/2.0.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_brightness(const Camwire_bus_handle_ptr &c_handle, double &brightness);
+            /* Gets the camera's trigger polarity setting: 1 for rising edge (active
+               high) or 0 for falling edge (active low).  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure. */
+            int get_trigger_polarity(const Camwire_bus_handle_ptr &c_handle, int &rising);
+            /* Gets the camera's trigger source setting: 1 for external or 0 for
+               internal.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure. */
+            int get_trigger_source(const Camwire_bus_handle_ptr &c_handle, int &external);
+            /* Gets the camera's shutter speed (exposure time in seconds).  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_shutter(const Camwire_bus_handle_ptr &c_handle, double &shutter);
+            /* Gets the video frame rate in frames per second.  See the description
+               of the meaning of 'frame rate' under camwire_set_framerate().
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_framerate(const Camwire_bus_handle_ptr &c_handle, double &framerate);
+            /* Gets the pixel tiling, as one of the Camwire_tiling enumeration
+               members above.  The tiling is not a typical camera setting because it
+               is not settable and hence there is no camwire_set_pixel_tiling()
+               function.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure. */
+            int get_pixel_tiling(const Camwire_bus_handle_ptr &c_handle, Camwire_tiling &tiling);
+            /* Gets the pixel coding, as one of the Camwire_pixel enumeration
+               members above.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+               on failure. */
+            int get_pixel_coding(const Camwire_bus_handle_ptr &c_handle, Camwire_pixel &coding);
+            /* Gets the frame size (width, height) in units of pixels.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_frame_size(const Camwire_bus_handle_ptr &c_handle, int &width, int &height);
+            /* Gets the frame offsets (left, top) in units of pixels.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_frame_offset(const Camwire_bus_handle_ptr &c_handle, int &left, int &top);
+            /* Warning: The use of this function is deprecated because it creates
+               the impression that it returns a currently fresh measure of the
+               buffer lag.  Rather use the buffer_lag returned by calls to
+               camwire_copy_next_frame(), camwire_point_next_frame(),
+               camwire_point_next_frame_poll(), and calls to
+               camwire_flush_framebuffers() with argument num_to_flush >= 1.
+               Ideally it should get the number of bus frame buffers which have been
+               filled by the camera but not yet accessed or, in other words, the
+               number of frames by which we are behind.  In the current
+               implementation this number is only updated by the calls listed above
+               and should otherwise be considered stale.  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure. */
+            int get_framebuffer_lag(const Camwire_bus_handle_ptr &c_handle, int &buffer_lag);
+            /* Gets the state shadow flag: 1 to get camera settings from an internal
+               shadow structure or 0 to read them directly from the camera hardware.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure.*/
+            int get_stateshadow(const Camwire_bus_handle_ptr &c_handle, int &shadow);
+            /* Fills in the given camwire identifier structure (type defined above).
+               The identifier is uniquely and permanently associated with the camera
+               hardware, such as might be obtained from configuration ROM data.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int get_identifier(const Camwire_bus_handle_ptr &c_handle, Camwire_id &identifier);
 
         /* Set to protected in case of Subclassing */
         protected:
@@ -381,6 +508,11 @@ namespace camwire
               coding, or 0 on error.  The coding_list argument must not be empty.
             */
             uint32_t convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list);
+            /*
+              Returns the AVT signed 32-bit int register values corresponding to the
+              9 given colour correction coefficients.
+            */
+            void convert_colourcoefs2avtvalues(const double coef[9], int32_t val[9]);
             /*
               Returns true (1) if the given color_id is in the given coding_list,
               else returns false (0).

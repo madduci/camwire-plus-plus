@@ -1324,6 +1324,49 @@ uint32_t camwire::camwire::convert_pixelcoding2colorid(const Camwire_pixel codin
     return 0;  /* Not supported by camera.*/
 }
 
+void camwire::camwire::convert_colourcoefs2avtvalues(const double coef[9], int32_t val[9])
+{
+    double safe[9];
+    int c, rowsum, col;
+
+    memcpy(safe, coef, 9*sizeof(double));
+    for (c = 0; c < 9; ++c)
+    {
+        /* Limit each coef to [-1..+2]: */
+        if (safe[c] < -1.0)  safe[c] = -1.0;
+        if (safe[c] > 2.0)   safe[c] = 2.0;
+
+        /* Convert by scaling and rounding in the right direction: */
+        if (safe[c] >= 0)  val[c] = (int)(1000*safe[c] + 0.5);
+        else               val[c] = (int)(1000*safe[c] - 0.5);
+    }
+    rowsum = 0.0;
+    col = 0;
+    for (c = 0; c < 9; ++c)
+    {
+        /* Limit sum of each row to +-2000: */
+        rowsum += val[c];
+        ++col;
+        if (col == 3)
+        {
+            if (rowsum > 2000)
+            {
+                val[c-2] = (val[c-2]*2000 + rowsum*(2000-1)/6000)/rowsum;
+                val[c-1] = (val[c-1]*2000 + rowsum*(2000-1)/6000)/rowsum;
+                val[c-0] = (val[c-0]*2000 + rowsum*(2000-1)/6000)/rowsum;
+            }
+            if (rowsum < -2000)
+            {
+                val[c-2] = -(val[c-2]*2000 + rowsum*(2000-1)/6000)/rowsum;
+                val[c-1] = -(val[c-1]*2000 + rowsum*(2000-1)/6000)/rowsum;
+                val[c-0] = -(val[c-0]*2000 + rowsum*(2000-1)/6000)/rowsum;
+            }
+            rowsum = 0;
+            col = 0;
+        }
+    }
+}
+
 int camwire::camwire::is_in_coding_list(const dc1394color_codings_t &coding_list, const dc1394color_coding_t color_id)
 {
     for (int c = 0; c < coding_list.num; ++c)
@@ -1512,7 +1555,7 @@ int camwire::camwire::set_non_dma_registers(const Camwire_bus_handle_ptr &c_hand
         /* Gamma: */
         if (internal_status->extras->gamma_capable)
         {
-            ERROR_IF_CAMWIRE_FAIL(camwire_set_gamma(c_handle, set->gamma));
+            ERROR_IF_CAMWIRE_FAIL(set_gamma(c_handle, set->gamma));
         }
         else
         {
@@ -2459,11 +2502,156 @@ int camwire::camwire::set_colour_coefficients(const Camwire_bus_handle_ptr &c_ha
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        if (!internal_status->extras->colour_corr_capable)
+        {
+            /* Colour coefficient matrix is fixed if the camera can't set it: */
+            DPRINTF("Camera reported no capability to change colour coefficients.");
+            return CAMWIRE_FAILURE;
+        }
+
+        int32_t val[9];
+        int corr_on;
+        dc1394bool_t on_off;
+        convert_colourcoefs2avtvalues(coef, val);
+
+        ERROR_IF_CAMWIRE_FAIL(get_colour_correction(c_handle, &corr_on));
+        /* Note 0 means on (see AVT Stingray Tech Manual).  There is a bug
+               in dc1394_avt_get_color_corr() &
+               dc1394_avt_get_advanced_feature_inquiry() v2.1.2.*/
+        on_off = (corr_on ? DC1394_FALSE : DC1394_TRUE);
+        ERROR_IF_DC1394_FAIL(dc1394_avt_set_color_corr(c_handle->camera.get(),
+                      on_off,
+                      DC1394_FALSE,
+                      val[0], val[1], val[2],
+                      val[3], val[4], val[5],
+                      val[6], val[7], val[8]));
+
+        convert_avtvalues2colourcoefs(val, shadow_state->colour_coef);
+
+        return CAMWIRE_SUCCESS;
+
 
     }
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to set colour coefficients");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_gamma(const Camwire_bus_handle_ptr &c_handle, const int gamma_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        if (!internal_status->extras->gamma_capable)
+        {
+            /* Camera has no gamma: */
+            DPRINTF("Camera reported no capability to change gamma.");
+            return CAMWIRE_SUCCESS;
+        }
+
+        dc1394bool_t lut_set;
+        uint32_t lut_num;
+        if (!shadow_state->shadow)
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_avt_get_lut(c_handle->camera.get(), &lut_set, &lut_num));
+            if (lut_set == DC1394_TRUE)
+                shadow_state->gamma = 1;
+            else
+                shadow_state->gamma = 0;
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set gamma");
+        return CAMWIRE_FAILURE;
+    }
+}
+
+int camwire::camwire::set_single_shot(const Camwire_bus_handle_ptr &c_handle, const int single_shot_on)
+{
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        Camwire_state_ptr shadow_state(new Camwire_state);
+        ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+        if (!internal_status->extras->single_shot_capable)
+        {
+            /* Single-shot is always switched off if the camera can't do it: */
+            shadow_state->single_shot = 0;
+            DPRINTF("Camera reported no single shot capability.");
+            return CAMWIRE_FAILURE;
+        }
+
+        dc1394switch_t iso_en;
+        dc1394bool_t one_shot_set;
+        if(shadow_state->shadow)
+        {
+            /* We *think* the camera is running.*/
+            if(shadow_state->running)
+            {
+                /* Camera is running: change to single-shot: */
+                if(!shadow_state->single_shot && single_shot_on)
+                {
+                    ERROR_IF_DC1394_FAIL(dc1394_video_set_transmission(c_handle->camera.get(), DC1394_OFF));
+                    ERROR_IF_DC1394_FAIL(dc1394_video_set_one_shot(c_handle->camera.get(), DC1394_ON));
+                }
+                /* Don't know if camera is still runnning: let's find out: */
+                else if(shadow_state->single_shot && !single_shot_on)
+                {
+                    ERROR_IF_DC1394_FAIL(dc1394_video_get_one_shot(c_handle->camera.get(), &one_shot_set));
+                    /* Camera is still runnning: change to continuous: */
+                    if(one_shot_set == DC1394_TRUE)
+                    {
+                        ERROR_IF_DC1394_FAIL(dc1394_video_set_one_shot(c_handle->camera.get(), DC1394_OFF));
+                        ERROR_IF_DC1394_FAIL(dc1394_video_set_transmission(c_handle->camera.get(), DC1394_ON));
+
+                    }
+                    else    /* Camera has finished single shot: update shadow state: */
+                    {
+                        shadow_state->running = 0;
+                    }
+                }
+            }
+        }
+        else /* else change only the internal state.*/
+        {
+            ERROR_IF_DC1394_FAIL(dc1394_video_get_transmission(c_handle->camera.get(), &iso_en));
+            if (iso_en == DC1394_ON && single_shot_on)
+            { 	 /* Camera is running: change to single-shot: */
+                 ERROR_IF_DC1394_FAIL(dc1394_video_set_transmission(c_handle->camera.get(), DC1394_OFF));
+                 ERROR_IF_DC1394_FAIL(dc1394_video_set_one_shot(c_handle->camera.get(), DC1394_ON));
+                 shadow_state->running = 1;
+            }
+            else if (iso_en == DC1394_OFF && !single_shot_on)
+            {
+                ERROR_IF_DC1394_FAIL(dc1394_video_get_one_shot(c_handle->camera.get(), &one_shot_set));
+                if (one_shot_set == DC1394_TRUE)
+                { 	/* Camera is still runnning: change to continuous: */
+                    ERROR_IF_DC1394_FAIL(dc1394_video_set_one_shot(c_handle->camera.get(), DC1394_OFF));
+                    ERROR_IF_DC1394_FAIL(dc1394_video_set_transmission(c_handle->camera.get(), DC1394_ON));
+                    shadow_state->running = 1;
+                }
+                /* else change only the internal state.*/
+            }
+        }
+
+        shadow_state->single_shot = single_shot_on;
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set single shot mode");
         return CAMWIRE_FAILURE;
     }
 }
