@@ -56,6 +56,42 @@ namespace camwire
                init() or initFromStruct().  All camera
                settings are lost.*/
             int destroy(const Camwire_bus_handle_ptr &c_handle);
+            /* Debugging tool for developers.  Prints the contents of
+               c_handle->userdata to stderr no matter what the state of the camera
+               is.  Always returns CAMWIRE_SUCCESS. */
+            int debug_print_status(const Camwire_bus_handle_ptr &c_handle);
+            /* Sets the string to Camwire's version as a string such as
+               "1.2.3", or empty if an internal error  happens).
+               This function can be called at any time.
+               Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on internal
+               error. */
+            int version(std::string &version_str);
+            /* Reads camera initialization settings from the given infile, changing
+               only the members of set that are present in the file.  The remaining
+               members are left as they were, and are assumed to contain previous
+               settings initialized before this function call.  The format of the
+               infile is one line per setting, where each line contains a tag and
+               value(s) separated by whitespace.  The tags are chosen from the names
+               of the members of Camwire_state and may be abbreviated as long as no
+               ambiguity results.  The value(s) is (are) the setting as understood
+               by the corresponding camwire_get/set_...() functions.  Most settings
+               have a single value, and some (like white balance) have two or more.
+               Empty lines and lines starting with the '#' character in the file are
+               ignored, as are unrecognized tags.  The function
+               camwire_write_state_to_file() can provide an example of the file
+               format.  If there are no errors, infile is at end-of-file on return.
+               Physical cameras are unchanged (there is no camera handle in the
+               argument list).  This function can be called at any time.  Returns
+               CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
+            int read_state_from_file(const std::shared_ptr<FILE> &infile, Camwire_state_ptr &set);
+            /* Writes camera initialization settings to the given outfile, in the
+               format understood by camwire_read_state_from_file().  The file can
+               subsequently be edited to change settings, or to remove lines of
+               settings that one wants to leave unchanged with
+               camwire_read_state_from_file().  outfile is at end-of-file on return.
+               This function can be called at any time.  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure.*/
+            int write_state_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_state_ptr &set);
             /* Tries to flush num_to_flush buffered frames.  If num_flushed is not
                the null pointer, the actual number of frames flushed is returned in
                *num_flashed.  *num_flushed will be less than num_to_flush if there
@@ -87,8 +123,8 @@ namespace camwire
                *buffer_lag.  This is the same number as can be obtained from
                camwire_get_framebuffer_lag().  The frame's number and time stamp are
                available afterwards from camwire_get_framenumber() and
-               camwire_get_timestamp().  If speed is important then
-               camwire_point_next_frame() or camwire_point_next_frame_poll() might
+               get_timestamp().  If speed is important then
+               point_next_frame() or camwire_point_next_frame_poll() might
                be faster.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
                failure. */
             int copy_next_frame(const Camwire_bus_handle_ptr &c_handle, void *buffer, int &buffer_lag);
@@ -107,8 +143,8 @@ namespace camwire
                This is the same number as can be obtained from
                camwire_get_framebuffer_lag().  The frame's number and time stamp are
                available afterwards from camwire_get_framenumber() and
-               camwire_get_timestamp().  This function may be faster than
-               camwire_copy_next_frame() because no copying is involved.  The
+               get_timestamp().  This function may be faster than
+               copy_next_frame() because no copying is involved.  The
                downside is that the function camwire_unpoint_frame() must be called
                each time when done to release the frame buffer again.  Returns
                CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
@@ -121,8 +157,8 @@ namespace camwire
                calling program even if a frame does not become available.  Otherwise
                its behaviour is similar to camwire_point_next_frame().  Note that
                the values returned from camwire_get_framenumber() and
-               camwire_get_timestamp() are not valid if no frame was returned.  Like
-               camwire_point_next_frame(), the function camwire_unpoint_frame() must
+               get_timestamp() are not valid if no frame was returned.  Like
+               point_next_frame(), the function camwire_unpoint_frame() must
                be called each time a frame is obtained to release the frame buffer
                again.  If no frame was obtained then camwire_unpoint_frame() should
                not be called.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
@@ -138,6 +174,25 @@ namespace camwire
                locked in which case it has no effect.  Returns CAMWIRE_SUCCESS on
                success or CAMWIRE_FAILURE on failure. */
             int unpoint_frame(const Camwire_bus_handle_ptr &c_handle);
+            /* Transforms cam_buf into lin_buf by inverse gamma correction assuming
+               the Rec.709 specification.  This should only be used to linearize the
+               response of images that were captured while gamma correction was
+               enabled with camwire_set_gamma().  It should restore the image
+               sensor's 10-bit (or so) linear dynamic range at the expense of some
+               loss of resolution.  The size and pixel coding of the image pointed
+               to by cam_buf must match the current setings of image size and pixel
+               coding.  The current pixel coding should have 8 bits per component
+               (see description of camwire_set_gamma()).  The resultant image
+               pointed to by lin_buf must have the same image size, and an assumed
+               pixel coding with 16 bits per component such as CAMWIRE_PIXEL_MONO16
+               or CAMWIRE_PIXEL_RGB16.  The image in lin_buf therefore requires
+               twice as much allocated memory as the one in cam_buf.  All 16-bit
+               camwire images are in network (big-endian) byte order.  The max_val
+               argument scales the output to give the wanted saturation value when
+               the input value is 255.  Typical values for max_val are 1023, 4095 or
+               65535.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
+               failure. */
+            int inv_gamma(const Camwire_bus_handle_ptr &c_handle, const void *cam_buf, void *lin_buf, const unsigned long max_val);
             /* Sets the camera run status in runsts: 1 for running or 0 for stopped.
                If a stopped camera is set to running while the acquisition type (as
                set by camwire_set_single_shot()) is single-shot, then only one frame
@@ -250,6 +305,22 @@ namespace camwire
                bus in the host computer.  Returns CAMWIRE_SUCCESS on success or
                CAMWIRE_FAILURE on failure. */
             int set_num_framebuffers(const Camwire_bus_handle_ptr &c_handle, const int &num_frame_buffers);
+            /* Sets the frame size (width, height) in units of pixels to the nearest
+               values valid for the camera.  The sizes available may be constrained
+               by the maximum available frame size and the current frame offsets.
+               The actual size set can be checked afterwards with
+               camwire_get_frame_size().  For some camera buses like IEEE 1394, the
+               frame rate may also change, especially with small frame sizes.  Check
+               afterwards with camwire_get_framerate().  Returns CAMWIRE_SUCCESS on
+               success or CAMWIRE_FAILURE on failure. */
+            int set_frame_size(const Camwire_bus_handle_ptr &c_handle, const int width, const int height);
+            /* Sets the pixel coding, given one of the Camwire_pixel enumeration
+               members above.  For some camera buses like IEEE 1394, the frame rate
+               may also change, especially with small frame sizes.  Check afterwards
+               with camwire_get_framerate().  Returns CAMWIRE_SUCCESS on success or
+               CAMWIRE_FAILURE on failure or if gamma is switched on and the new
+               coding does not support gamma correction. */
+            int set_pixel_coding(const Camwire_bus_handle_ptr &c_handle, const Camwire_pixel coding);
             /* Gets the camera's current settings (running/stopped, trigger source,
                frame rate, frame size, etc).  If the camera has not been created,
                the camera is physically reset to factory default settings and those
@@ -631,6 +702,17 @@ namespace camwire
               their shadow state.  Note that the order of register writes may be
               significant for some cameras after power-up or reset/initilize.  */
             int set_non_dma_registers(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set);
+            /*
+              Returns the number of packets required to transmit a single frame, as
+              obtained from the camera.
+            */
+            int get_numpackets(const Camwire_bus_handle_ptr &c_handle, u_int32_t &num_p);
+            /*
+              Returns a pointer to the dc1394video_frame_t structure for the given
+              camwire handle, or 0 on error.  Needed by many libdc1394
+              functions.
+            */
+            int get_captureframe(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394video_frame_t> &frame);
 
     };
 
