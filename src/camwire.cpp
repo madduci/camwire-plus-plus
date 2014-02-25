@@ -28,6 +28,14 @@ camwire::camwire &camwire::camwire::operator=(const camwire &cam)
     return *this;
 }
 
+
+bool camwire::camwire::getenv(const char *name, std::string &env)
+{
+    const char *ret = std::getenv(name);
+    if (ret) env = std::string(ret);
+    return !!ret;
+}
+
 int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwire_state_ptr &set)
 {
     try
@@ -713,45 +721,49 @@ int camwire::camwire::config_cache_exists(const User_handle &internal_status)
         return CAMWIRE_FAILURE;
 }
 
-int camwire::camwire::find_conf_file(const Camwire_id &id, std::shared_ptr<FILE> &conffile)
+int camwire::camwire::find_conf_file(const Camwire_id &id, FILE *conffile)
 {
     try
     {
-        std::string env_directory;
-
-        if(open_named_conf_file(0, id.chip, conffile) == CAMWIRE_SUCCESS)
+        std::string env_directory("");
+        if(open_named_conf_file("", id.chip, conffile) == CAMWIRE_SUCCESS)
+            return CAMWIRE_SUCCESS;
+         if(open_named_conf_file("", id.model, conffile) == CAMWIRE_SUCCESS)
+            return CAMWIRE_SUCCESS;
+        if(open_named_conf_file("", id.vendor, conffile) == CAMWIRE_SUCCESS)
             return CAMWIRE_SUCCESS;
 
-        if(open_named_conf_file(0, id.model, conffile) == CAMWIRE_SUCCESS)
-            return CAMWIRE_SUCCESS;
-
-        if(open_named_conf_file(0, id.vendor, conffile) == CAMWIRE_SUCCESS)
-            return CAMWIRE_SUCCESS;
-
-        env_directory = getenv(ENVIRONMENT_VAR_CONF);
-        if(env_directory.length() > 0)
+        if(!getenv(ENVIRONMENT_VAR_CONF, env_directory))    //getenv throws if not set
         {
-            if(open_named_conf_file(env_directory, id.chip, conffile) == CAMWIRE_SUCCESS)
-                return CAMWIRE_SUCCESS;
-
-            if(open_named_conf_file(env_directory, id.model, conffile) == CAMWIRE_SUCCESS)
-                return CAMWIRE_SUCCESS;
-
-            if(open_named_conf_file(env_directory, id.vendor, conffile) == CAMWIRE_SUCCESS)
-                return CAMWIRE_SUCCESS;
+            DPRINTF("No environment variable set.");
+        }
+        else
+        {
+            if(env_directory.size() > 0)
+            {
+                if(open_named_conf_file(env_directory, id.chip, conffile) == CAMWIRE_SUCCESS)
+                    return CAMWIRE_SUCCESS;
+                DPRINTF("Fourth");
+                if(open_named_conf_file(env_directory, id.model, conffile) == CAMWIRE_SUCCESS)
+                    return CAMWIRE_SUCCESS;
+                DPRINTF("Fifth");
+                if(open_named_conf_file(env_directory, id.vendor, conffile) == CAMWIRE_SUCCESS)
+                    return CAMWIRE_SUCCESS;
+                DPRINTF("Sixth");
+            }
         }
 
         DPRINTF("No configuration file found");
         return CAMWIRE_FAILURE;
     }
-    catch(std::runtime_error &re)
+    catch(std::exception &re)
     {
         DPRINTF("Failed to find configuration file");
         return CAMWIRE_FAILURE;
     }
 }
 
-int camwire::camwire::open_named_conf_file(const std::string &path, const std::string &filename, std::shared_ptr<FILE> &conffile)
+int camwire::camwire::open_named_conf_file(const std::string &path, const std::string &filename, FILE *conffile)
 {
     try
     {
@@ -765,10 +777,7 @@ int camwire::camwire::open_named_conf_file(const std::string &path, const std::s
 
         conffilename += filename + CONFFILE_EXTENSION;
         /* Check if previously pointing to other data and release it */
-        if(conffile)
-            conffile.reset();
-
-        conffile = std::shared_ptr<FILE>(fopen(conffilename.c_str(), "r"));
+        conffile = fopen(conffilename.c_str(), "r");
         if(conffile)
             return CAMWIRE_SUCCESS;
         else
@@ -783,13 +792,13 @@ int camwire::camwire::open_named_conf_file(const std::string &path, const std::s
 
 /* Keeping C-style I/O operations just for compatibility with Camwire original code */
 /* This will be in future converted into C++ style, using fstream: it's cleaner */
-int camwire::camwire::read_conf_file(const std::shared_ptr<FILE> &conffile, Camwire_conf_ptr &cfg)
+int camwire::camwire::read_conf_file(FILE *conffile, Camwire_conf_ptr &cfg)
 {
     int scan_result = 0, speed = 0, num_bits_set = 0;
     try
     {
         scan_result =
-        fscanf(conffile.get(),
+        fscanf(conffile,
                "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
                "  bus_speed:           %d\n"
                "  format:              %d\n"
@@ -851,12 +860,12 @@ int camwire::camwire::read_conf_file(const std::shared_ptr<FILE> &conffile, Camw
 
 /* Keeping C-style I/O operations just for compatibility with Camwire original code */
 /* This will be in future converted into C++ style, using fstream: it's cleaner */
-int camwire::camwire::write_config_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_conf_ptr &cfg)
+int camwire::camwire::write_config_to_file(FILE *outfile, const Camwire_conf_ptr &cfg)
 {
     int print_result = 0;
     try
     {
-        print_result = fprintf(outfile.get(),
+        print_result = fprintf(outfile,
                    "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
                    "  bus_speed:           %d\n"
                    "  format:              %d\n"
@@ -889,7 +898,7 @@ int camwire::camwire::write_config_to_file(const std::shared_ptr<FILE> &outfile,
         {
             return CAMWIRE_FAILURE;
         }
-        fflush(outfile.get());
+        fflush(outfile);
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
@@ -1759,7 +1768,8 @@ int camwire::camwire::feature_switch_on(const Camwire_bus_handle_ptr &c_handle, 
             ERROR_IF_DC1394_FAIL(dc1394_feature_get_power(c_handle->camera.get(), cap.get()->id, &cap.get()->is_on));
             if (cap.get()->is_on != DC1394_ON)
             {
-                std::string error_message = "Could not switch " + std::to_string(cap.get()->id) + " on.";
+                std::string error_id = std::to_string(cap.get()->id);
+                std::string error_message = "Could not switch " + error_id + " on.";
                 DPRINTF(error_message);
                 return CAMWIRE_FAILURE;
             }
@@ -1788,7 +1798,7 @@ int camwire::camwire::feature_go_manual(const Camwire_bus_handle_ptr &c_handle, 
                             &cap.get()->current_mode));
             if (cap.get()->current_mode != DC1394_FEATURE_MODE_MANUAL)
             {
-                std::string error_message = "Could not switch " + std::to_string(cap.get()->id) + " to manual.";
+                std::string error_message = "Could not switch " + std::to_string(cap->id) + " to manual.";
                 DPRINTF(error_message);
                 return CAMWIRE_FAILURE;
             }
@@ -1989,7 +1999,7 @@ int camwire::camwire::destroy(const Camwire_bus_handle_ptr &c_handle)
             set_run_stop(c_handle);
             sleep_frametime(c_handle, 1.5);
             /* Reset causes problems with too many cameras, so comment it out: */
-            /* dc1394_camera_reset(camwire_handle_get_camera(c_handle)); */
+            dc1394_camera_reset(c_handle->camera.get());
             disconnect_cam(c_handle);
             free_internals(c_handle);
             return CAMWIRE_SUCCESS;
@@ -2087,12 +2097,11 @@ int camwire::camwire::debug_print_status(const Camwire_bus_handle_ptr &c_handle)
             std::cerr << "(null)" << std::endl << std::endl;
 
         std::cerr << "config_cache: ";
-        std::shared_ptr<FILE> output(stderr);
         Camwire_conf_ptr cfg = internal_status->config_cache;
         if(cfg)
         {
             std::cerr << std::endl;
-            write_config_to_file(output, cfg);
+            write_config_to_file(stderr, cfg);
         }
         else
             std::cerr << "(null)" << std::endl << std::endl;
@@ -2102,7 +2111,7 @@ int camwire::camwire::debug_print_status(const Camwire_bus_handle_ptr &c_handle)
         if(set)
         {
             std::cerr << std::endl;
-            write_state_to_file(output, set);
+            write_state_to_file(stderr, set);
         }
         else
             std::cerr << "(null)" << std::endl << std::endl;
@@ -2120,7 +2129,11 @@ int camwire::camwire::version(std::string &version_str)
 {
     try
     {
-        version_str = std::to_string(Camwire_VERSION_MAJOR) + std::to_string(Camwire_VERSION_MINOR) + std::to_string(Camwire_VERSION_PATCH);
+        std::string version_major, version_minor, version_patch;
+        version_major = std::to_string(Camwire_VERSION_MAJOR);
+        version_minor = std::to_string(Camwire_VERSION_MINOR);
+        version_patch = std::to_string(Camwire_VERSION_PATCH);
+        version_str = version_major + version_minor + version_patch;
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
@@ -2132,7 +2145,7 @@ int camwire::camwire::version(std::string &version_str)
 }
 
 //To-Do
-int camwire::camwire::read_state_from_file(const std::shared_ptr<FILE> &infile, Camwire_state_ptr &set)
+int camwire::camwire::read_state_from_file(FILE *infile, Camwire_state_ptr &set)
 {
     try
     {
@@ -2145,14 +2158,14 @@ int camwire::camwire::read_state_from_file(const std::shared_ptr<FILE> &infile, 
     }
 }
 
-int camwire::camwire::write_state_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_state_ptr &set)
+int camwire::camwire::write_state_to_file(FILE *outfile, const Camwire_state_ptr &set)
 {
     try
     {
         int print_result;
 
-        fprintf(outfile.get(), "# Camwire settings:\n");
-        print_result = fprintf(outfile.get(), settings_format,
+        fprintf(outfile, "# Camwire settings:\n");
+        print_result = fprintf(outfile, settings_format,
                set->num_frame_buffers,
                set->gain,
                set->brightness,
@@ -2191,7 +2204,7 @@ int camwire::camwire::write_state_to_file(const std::shared_ptr<FILE> &outfile, 
             return CAMWIRE_FAILURE;
         }
 
-        fflush(outfile.get());
+        fflush(outfile);
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
@@ -3332,14 +3345,16 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
             cfg = internal_status->config_cache;
         }
         else
-        { 	/* Read a conf file and cache it.*/
+        {
+            /* Read a conf file and cache it.*/
             ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
-            std::shared_ptr<FILE> conffile(new FILE);
+            FILE *conffile;
             ERROR_IF_CAMWIRE_FAIL(find_conf_file(identifier, conffile));
+            DPRINTF("get_config: find_conf_file executed");
             if (conffile)
             {
                 ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
-                fclose(conffile.get());
+                fclose(conffile);
                 if (internal_status && internal_status->config_cache)
                 { /* A camera has been created (not strictly necessary).*/
                     internal_status->config_cache = cfg;
@@ -3396,9 +3411,9 @@ int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Cam
     {
         ERROR_IF_NULL(c_handle);
         Camera_handle camera = c_handle->camera;
-        identifier.vendor = camera.get()->vendor;
-        identifier.model = camera.get()->model;
-        identifier.chip = std::to_string(camera.get()->guid);
+        identifier.vendor = camera->vendor;
+        identifier.model = camera->model;
+        identifier.chip = std::to_string(camera->guid);
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)

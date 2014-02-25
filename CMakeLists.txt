@@ -21,6 +21,7 @@ ENDIF ()
 
 include_directories(src)
 include_directories(include)
+include_directories(test)
 
 file(GLOB_RECURSE ${PACKAGE_NAME}_HEADERS include/*.hpp)
 file(GLOB_RECURSE ${PACKAGE_NAME}_SRC src/*.cpp)
@@ -51,3 +52,11 @@ if ((${LIBRARY_NAME}_BUILD_TYPE_UPPER STREQUAL DEBUG) OR
         COMPILE_DEFINITIONS CAMERA_DEBUG)
 endif ()
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+find_package(DC1394 REQUIRED)
+
+IF(DC1394_2_FOUND)
+message("libdc1394 2.x found")
+add_executable(hello test/hello.cpp)
+target_link_libraries(hello ${LIBRARY_NAME} ${DC1394_LIBRARIES})
+ENDIF(DC1394_2_FOUND)

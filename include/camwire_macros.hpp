@@ -65,7 +65,7 @@ const int CAMWIRE_FAILURE = 0;  /* false */
        return(CAMWIRE_FAILURE);}
 
 #define CONFFILE_EXTENSION		".conf"
-#define ENVIRONMENT_VAR_CONF	"CAMWIRE_CONF"
+#define ENVIRONMENT_VAR_CONF    "CAMWIRE_CONF"
 
 /*
     Since libdc1394 doesn't offer and "Invalid video mode" enum type, here I add it:

@@ -83,7 +83,7 @@ namespace camwire
                Physical cameras are unchanged (there is no camera handle in the
                argument list).  This function can be called at any time.  Returns
                CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on failure. */
-            int read_state_from_file(const std::shared_ptr<FILE> &infile, Camwire_state_ptr &set);
+            int read_state_from_file(FILE *infile, Camwire_state_ptr &set);
             /* Writes camera initialization settings to the given outfile, in the
                format understood by camwire_read_state_from_file().  The file can
                subsequently be edited to change settings, or to remove lines of
@@ -91,7 +91,7 @@ namespace camwire
                camwire_read_state_from_file().  outfile is at end-of-file on return.
                This function can be called at any time.  Returns CAMWIRE_SUCCESS on
                success or CAMWIRE_FAILURE on failure.*/
-            int write_state_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_state_ptr &set);
+            int write_state_to_file(FILE *outfile, const Camwire_state_ptr &set);
             /* Tries to flush num_to_flush buffered frames.  If num_flushed is not
                the null pointer, the actual number of frames flushed is returned in
                *num_flashed.  *num_flushed will be less than num_to_flush if there
@@ -454,6 +454,10 @@ namespace camwire
             Camwire_user_data user_data;
             camwire(const camwire &cam);
             camwire& operator=(const camwire &cam);
+
+            //the UNIX one throws if the environment variable is NULL
+            bool getenv(const char *name, std::string &env);
+
             /*
              Does the actual work of camwire_create() and
               camwire_create_from_struct(), after they have initialized the camera
@@ -521,25 +525,25 @@ namespace camwire
               Attempts to open a configuration file for reading.  Returns 1 if
               stream pointer creation was successful or 0 on failure.
             */
-            int find_conf_file(const Camwire_id &id, std::shared_ptr<FILE> &conffile);
+            int find_conf_file(const Camwire_id &id, FILE *conffile);
             /*
               Attempts to open the named configuration file for reading after
               appending the configuration filename extension.  Returns the stream
               pointer on success or 0 on failure.
             */
-            int open_named_conf_file(const std::string &path, const std::string &filename, std::shared_ptr<FILE> &conffile);
+            int open_named_conf_file(const std::string &path, const std::string &filename, FILE *conffile);
             /*
               Reads configuration from the given conf file into the given
               configuration structure. Returns CAMWIRE_SUCCESS on success or
               CAMWIRE_FAILURE on failure.
             */
-            int read_conf_file(const std::shared_ptr<FILE> &conffile, Camwire_conf_ptr &cfg);
+            int read_conf_file(FILE *conffile, Camwire_conf_ptr &cfg);
             /* Writes the static configuration settings as obtained from
                camwire_get_config() to the given file.  The print format is the same
                as that expected by camwire_get_config() when it reads configuration
                files.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE on
                failure.*/
-            int write_config_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_conf_ptr &cfg);
+            int write_config_to_file(FILE *outfile, const Camwire_conf_ptr &cfg);
             int write_config_to_output(const Camwire_conf_ptr &cfg);
             /*
               Returns 1 (true) if the IEEE 1394 image format is a fixed image size,

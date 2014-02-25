@@ -46,7 +46,7 @@ camwire::camwirebus::~camwirebus()
 
 camwire::camwirebus::camwirebus(const camwirebus &cb): num_cams(cb.num_cams)
 {
-    handlers.clear();
+    destroy();
 }
 
 camwire::camwirebus& camwire::camwirebus::operator=(const camwirebus &cb)

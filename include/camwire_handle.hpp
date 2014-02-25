@@ -54,6 +54,7 @@ namespace camwire
         std::string vendor;
         std::string model;
         std::string chip;
+        Camwire_id(): vendor(""), model(""), chip(""){};
     };
 
     /* Type for selecting the pixel encoding and pixel depth, as used by
