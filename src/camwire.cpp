@@ -5,6 +5,8 @@
 #include <unistd.h>         //sleep function
 #include <cmath>            //log function
 #include <cfloat>           //definition of DBL_MAX
+#include <netinet/in.h>     //htons on Linux
+#include <climits>          //definition of INT_MAX
 
 camwire::camwire::camwire()
 {
@@ -1645,6 +1647,28 @@ int camwire::camwire::get_captureframe(const Camwire_bus_handle_ptr &c_handle, s
     }
 }
 
+int camwire::camwire::component_depth(const Camwire_pixel coding)
+{
+    switch (coding)
+    {
+        case CAMWIRE_PIXEL_MONO8:
+        case CAMWIRE_PIXEL_YUV411:
+        case CAMWIRE_PIXEL_YUV422:
+        case CAMWIRE_PIXEL_YUV444:
+        case CAMWIRE_PIXEL_RGB8:
+        case CAMWIRE_PIXEL_RAW8:
+                                return 8;
+        case CAMWIRE_PIXEL_MONO16:
+        case CAMWIRE_PIXEL_RGB16:
+        case CAMWIRE_PIXEL_MONO16S:
+        case CAMWIRE_PIXEL_RGB16S:
+        case CAMWIRE_PIXEL_RAW16:
+                                return 16;
+        default:
+                                return 0;
+    }
+}
+
 dc1394video_mode_t camwire::camwire::get_1394_video_mode(const Camwire_bus_handle_ptr &c_handle)
 {
     try
@@ -2107,14 +2131,74 @@ int camwire::camwire::version(std::string &version_str)
     }
 }
 
+//To-Do
 int camwire::camwire::read_state_from_file(const std::shared_ptr<FILE> &infile, Camwire_state_ptr &set)
 {
-
+    try
+    {
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to read state from file");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::write_state_to_file(const std::shared_ptr<FILE> &outfile, const Camwire_state_ptr &set)
 {
+    try
+    {
+        int print_result;
 
+        fprintf(outfile.get(), "# Camwire settings:\n");
+        print_result = fprintf(outfile.get(), settings_format,
+               set->num_frame_buffers,
+               set->gain,
+               set->brightness,
+               set->white_balance[0],
+               set->white_balance[1],
+               set->gamma,
+               set->colour_corr,
+               set->colour_coef[0],
+               set->colour_coef[1],
+               set->colour_coef[2],
+               set->colour_coef[3],
+               set->colour_coef[4],
+               set->colour_coef[5],
+               set->colour_coef[6],
+               set->colour_coef[7],
+               set->colour_coef[8],
+               set->left,
+               set->top,
+               set->width,
+               set->height,
+               set->coding,
+               set->tiling,
+               set->frame_rate,
+               set->shutter,
+               set->external_trigger,
+               set->trigger_polarity,
+               set->single_shot,
+               set->running,
+               set->shadow);
+        /* Any changes to the arguments to fprintf() above must also be done
+           to the global format string settings_format. */
+
+        if (print_result < 1)
+        {
+            DPRINTF("fprintf() failed.");
+            return CAMWIRE_FAILURE;
+        }
+
+        fflush(outfile.get());
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to write state to file");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 /* This function could potentially throw exceptions */
@@ -2300,10 +2384,58 @@ int camwire::camwire::unpoint_frame(const Camwire_bus_handle_ptr &c_handle)
     }
 }
 
-//To-DO
 int camwire::camwire::inv_gamma(const Camwire_bus_handle_ptr &c_handle, const void *cam_buf, void *lin_buf, const unsigned long max_val)
 {
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        User_handle internal_status = c_handle->userdata;
+        ERROR_IF_NULL(internal_status);
 
+        /* Checking */
+        if (max_val == 0 || max_val > UINT16_MAX)
+        {
+            DPRINTF("3rd argument is zero or exceeds 16-bit range.");
+            return CAMWIRE_FAILURE;
+        }
+
+        Camwire_pixel coding;
+        ERROR_IF_CAMWIRE_FAIL(get_pixel_coding(c_handle, coding));
+        if (component_depth(coding) != 8)
+        {
+            DPRINTF("Pixel coding does not have 8-bit components.");
+            return CAMWIRE_FAILURE;
+        }
+
+        /* Initialize look-up table if necessary: */
+        if (static_cast<uint16_t>(max_val) != internal_status->extras->gamma_maxval)
+        {
+            for (size_t i = 0; i < 256; ++i)
+                gamma_lut[i] = htons(static_cast<uint16_t>(max_val*gamma_inv[i] + 0.5));
+
+            internal_status->extras->gamma_maxval = static_cast<uint16_t>(max_val);
+        }
+
+        int width, height, depth;
+        uint16_t *endp, *outp;
+        size_t num_components;
+        /* Transform: */
+        ERROR_IF_CAMWIRE_FAIL(get_frame_size(c_handle, width, height));
+        ERROR_IF_CAMWIRE_FAIL(pixel_depth(coding, depth));
+        num_components = static_cast<size_t>(width*height*depth/8);
+
+        const uint8_t *inp = reinterpret_cast<const uint8_t *>(cam_buf);
+        endp = reinterpret_cast<uint16_t *>(lin_buf) + num_components;
+        for (outp = reinterpret_cast<uint16_t *>(lin_buf); outp != endp; ++outp)
+            *outp = gamma_lut[*inp++];
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to transform buffers using inv_gamma");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::set_run_stop(const Camwire_bus_handle_ptr &c_handle, const int runsts)
@@ -2953,16 +3085,214 @@ int camwire::camwire::set_num_framebuffers(const Camwire_bus_handle_ptr &c_handl
     }
 }
 
-//To-Do
 int camwire::camwire::set_frame_size(const Camwire_bus_handle_ptr &c_handle, const int width, const int height)
 {
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        dc1394video_mode_t video_mode;
+        video_mode = get_1394_video_mode(c_handle);
+        ERROR_IF_ZERO(video_mode);
 
+        uint32_t max_width, max_height;
+        uint32_t hor_pixel_unit, ver_pixel_unit;
+        int left, top;
+        int hor_limit, ver_limit;
+        int new_width, new_height;
+        int min_pixel_units;
+        Camwire_state_ptr settings(new Camwire_state);
+        Camwire_conf_ptr config(new Camwire_conf);
+        if (fixed_image_size(video_mode))  /* Format 0, 1 or 2.*/
+        {
+            DPRINTF("Attempt to change frame size in a fixed image size format.");
+            return CAMWIRE_FAILURE;
+        }
+        else if (variable_image_size(video_mode))  /* Format 7.*/
+        {
+            ERROR_IF_CAMWIRE_FAIL(get_current_settings(c_handle, settings));
+            /* Width and height: */
+            if (width == settings->width && height == settings->height)
+            {
+                return CAMWIRE_SUCCESS; 	/* Nothing has changed.*/
+            }
+            /* Get maximum width, maximum height, unit pixel sizes, and
+               offsets from the camera: */
+            ERROR_IF_DC1394_FAIL(dc1394_format7_get_max_image_size(c_handle->camera.get(),
+                video_mode,
+                &max_width,
+                &max_height));
+
+            if (max_width  == 0 || max_height == 0)
+            {
+                DPRINTF("dc1394_format7_get_max_image_size() returned a zero "
+                    "maximum size.");
+                return CAMWIRE_FAILURE;
+            }
+            ERROR_IF_DC1394_FAIL(
+               dc1394_format7_get_unit_size(
+                c_handle->camera.get(),
+                video_mode,
+                &hor_pixel_unit,
+                &ver_pixel_unit));
+            if (hor_pixel_unit == 0 || ver_pixel_unit == 0)
+            {
+                DPRINTF("dc1394_format7_get_unit_size() returned a zero "
+                    "unit size.");
+                return CAMWIRE_FAILURE;
+            }
+
+            ERROR_IF_CAMWIRE_FAIL(get_frame_offset(c_handle, left, top));
+            /* Adjust input arguments if necessary, taking maximum frame
+               sizes, current offsets and unit pixel sizes into account: */
+            if (width < INT_MAX - static_cast<int>(hor_pixel_unit)/2)
+                new_width  = (width  + hor_pixel_unit/2)/hor_pixel_unit;
+            else
+                new_width = INT_MAX/hor_pixel_unit;
+
+            if (height < INT_MAX - static_cast<int>(ver_pixel_unit)/2)
+                new_height = (height + ver_pixel_unit/2)/ver_pixel_unit;
+            else
+                new_height = INT_MAX/ver_pixel_unit;
+
+            if (new_width  < 1)
+                new_width = 1;
+            if (new_height < 1)
+                new_height = 1;
+
+            hor_limit = (max_width - left)/hor_pixel_unit;
+            ver_limit = (max_height - top)/ver_pixel_unit;
+            if (new_width  > hor_limit)  new_width  = hor_limit;
+            if (new_height > ver_limit)  new_height = ver_limit;
+
+            /* Maintain the minimum number of pixels: */
+            ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+            min_pixel_units = config->min_pixels/(hor_pixel_unit*ver_pixel_unit);
+            if (new_width*new_height < min_pixel_units)
+            {
+                new_width = (min_pixel_units + new_height - 1)/new_height;
+                if (new_width > hor_limit)
+                {
+                    new_width = hor_limit;
+                    new_height = (min_pixel_units + new_width - 1)/new_width;
+                    if (new_height > ver_limit)
+                        new_height = ver_limit;
+                }
+            }
+            new_width  *= hor_pixel_unit;
+            new_height *= ver_pixel_unit;
+
+                /* Only proceed if size has changed after all: */
+            if (new_width != settings->width || new_height != settings->height)
+            {
+                settings->width  = new_width;
+                settings->height = new_height;
+
+                /* Set the new dimensions by re-initializing the camera: */
+                ERROR_IF_CAMWIRE_FAIL(
+                reconnect_cam(c_handle, config, settings));
+            }
+        }
+        else
+        {
+            DPRINTF("Unsupported camera format.");
+            return CAMWIRE_FAILURE;
+        }
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set frame size");
+        return CAMWIRE_FAILURE;
+    }
 }
 
-//To-Do
+/* The pixel colour coding is updated by disconnecting and reconnecting
+   the camera.  I have not been able to do it less brutally.  It seems
+   that the video1394 driver does not expect the frame size to change
+   even if enough memory has been allocated for larger frames. */
 int camwire::camwire::set_pixel_coding(const Camwire_bus_handle_ptr &c_handle, const Camwire_pixel coding)
 {
+    try
+    {
+        ERROR_IF_NULL(c_handle);
+        dc1394video_mode_t video_mode;
+        video_mode  = get_1394_video_mode(c_handle);
+        ERROR_IF_ZERO(video_mode);
 
+        Camwire_pixel old_coding;
+        Camwire_state_ptr shadow_state(new Camwire_state), settings(new Camwire_state);
+        Camwire_conf_ptr config(new Camwire_conf);
+        dc1394color_codings_t coding_list;
+        dc1394color_coding_t color_id;
+        int old_depth, new_depth;
+
+        if (fixed_image_size(video_mode))  /* Format 0, 1 or 2.*/
+        {
+            DPRINTF("Attempt to set pixel coding in a fixed image size format.");
+            /* TODO: Set it by changing the mode?*/
+            return CAMWIRE_FAILURE;
+        }
+        else if (variable_image_size(video_mode))  /* Format 7.*/
+        {
+            ERROR_IF_CAMWIRE_FAIL(get_pixel_coding(c_handle, old_coding));
+
+            /* Only proceed if pixel colour coding has changed: */
+            if (coding != old_coding)
+            {
+                /* Check if new pixel coding is supported by camera: */
+                ERROR_IF_DC1394_FAIL(dc1394_format7_get_color_codings(c_handle->camera.get(), video_mode,&coding_list));
+                if (coding_list.num == 0)
+                {
+                    DPRINTF("dc1394_format7_get_color_codings() returned an empty list.");
+                    return CAMWIRE_FAILURE;
+                }
+
+                color_id = static_cast<dc1394color_coding_t>(convert_pixelcoding2colorid(coding, coding_list));
+                if (color_id == 0)
+                {
+                    DPRINTF("Pixel colour coding is invalid or not supported  by "
+                        "the camera.");
+                    return CAMWIRE_FAILURE;
+                }
+
+                /* Set the new coding: */
+                ERROR_IF_CAMWIRE_FAIL(pixel_depth(old_coding, old_depth));
+                ERROR_IF_CAMWIRE_FAIL(pixel_depth(coding, new_depth));
+                if (new_depth == old_depth)
+                {
+                    /* Set the new coding directly: */
+                    ERROR_IF_DC1394_FAIL(
+                        dc1394_format7_set_color_coding(
+                        c_handle->camera.get(),
+                        video_mode,
+                        color_id));
+                    ERROR_IF_CAMWIRE_FAIL(get_shadow_state(c_handle, shadow_state));
+                    ERROR_IF_NULL(shadow_state);
+                    shadow_state->coding = coding;
+                }
+                else
+                {
+                    /* Re-initialize the camera with the new coding: */
+                    ERROR_IF_CAMWIRE_FAIL(get_config(c_handle, config));
+                    ERROR_IF_CAMWIRE_FAIL(get_current_settings(c_handle, settings));
+                    settings->coding = coding;
+                    ERROR_IF_CAMWIRE_FAIL(reconnect_cam(c_handle, config, settings));
+                }
+            }
+        }
+        else
+        {
+            DPRINTF("Unsupported camera format.");
+            return CAMWIRE_FAILURE;
+        }
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to set pixel coding.");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::get_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)

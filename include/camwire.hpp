@@ -446,6 +446,10 @@ namespace camwire
 
         /* Set to protected in case of Subclassing */
         protected:
+            /* Inverse gamma transform look-up table used by camwire_inv_gamma().
+               Assumed to be initialized when Camwire_user_data.gamma_maxval
+               is non-zero: */
+            uint16_t gamma_lut[256];
             Camwire_id cam_id;
             Camwire_user_data user_data;
             camwire(const camwire &cam);
@@ -713,7 +717,10 @@ namespace camwire
               functions.
             */
             int get_captureframe(const Camwire_bus_handle_ptr &c_handle, std::shared_ptr<dc1394video_frame_t> &frame);
-
+            /*
+              Returns the number of bits per component in the given pixel coding.
+            */
+            int component_depth(const Camwire_pixel coding);
     };
 
 }
