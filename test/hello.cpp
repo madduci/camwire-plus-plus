@@ -23,7 +23,6 @@ int main()
     int num_cameras;
     std::shared_ptr<camwire::camwirebus> bus(new camwire::camwirebus);
     std::vector<std::shared_ptr<camwire::camwire> > camera_managers;
-    int camwire_return;
     int w = 0, h = 0;
     camwire::Camwire_id camid;
     

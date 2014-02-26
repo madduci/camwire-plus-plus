@@ -208,6 +208,9 @@ namespace camwire
         int external_trigger, trigger_polarity;
         int single_shot, running;
         int shadow;
+        Camwire_state(): num_frame_buffers(0), gain(0), brightness(0), gamma(0), colour_corr(0), left(0), top(0),
+            width(0), height(0), coding(CAMWIRE_PIXEL_INVALID), tiling(CAMWIRE_TILING_INVALID), frame_rate(0),
+            shutter(0), external_trigger(0), trigger_polarity(0), single_shot(0), running(0), shadow(0){}
     };
 
     typedef std::shared_ptr<Camwire_state>  Camwire_state_ptr;
@@ -231,6 +234,9 @@ namespace camwire
         int transmit_overlap;
         int drop_frames;
         std::string dma_device_name;
+        Camwire_conf(): bus_speed(0), format(0), mode(0), max_packets(0), min_pixels(0), trig_setup_time(0),
+            exposure_quantum(0), exposure_offset(0), line_transfer_time(0), transmit_setup_time(0),
+            transmit_overlap(0), drop_frames(0), dma_device_name(""){}
     };
 
     typedef std::shared_ptr<Camwire_conf>  Camwire_conf_ptr;
@@ -248,6 +254,8 @@ namespace camwire
         uint16_t gamma_maxval;
         int colour_corr_capable;  /* Flag.*/
         Camwire_tiling tiling_value;
+        Extra_features(): single_shot_capable(0), gamma_capable(0), gamma_maxval(0), colour_corr_capable(0),
+            tiling_value(CAMWIRE_TILING_INVALID) {}
     };
 
     typedef std::shared_ptr<Extra_features> Extra_features_ptr;
@@ -271,6 +279,7 @@ namespace camwire
         std::shared_ptr<dc1394video_frame_t> frame;
         Camwire_conf_ptr config_cache;
         Camwire_state_ptr current_set;
+        Camwire_user_data(): camera_connected(0), frame_lock(0), frame_number(0), num_dma_buffers(0) {}
     };
 
     typedef std::shared_ptr<dc1394camera_t>       Camera_handle;

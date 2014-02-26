@@ -746,7 +746,7 @@ void camwire::camwire::disconnect_cam(const Camwire_bus_handle_ptr &c_handle)
                 if (internal_status->frame_lock)
                 {
                     dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame.get());
-                    internal_status->frame = 0;
+                    internal_status->frame.reset();
                     internal_status->frame_lock = 0;
                 }
                 dc1394_capture_stop(c_handle->camera.get());
@@ -771,7 +771,7 @@ void camwire::camwire::free_internals(const Camwire_bus_handle_ptr &c_handle)
             {
                 dc1394_capture_enqueue(c_handle->camera.get(),
                            internal_status->frame.get());
-                internal_status->frame = 0;
+                internal_status->frame.reset();
                 internal_status->frame_lock = 0;
             }
         }
@@ -2378,13 +2378,12 @@ int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, v
         ERROR_IF_NULL(c_handle);
         User_handle internal_status = c_handle->userdata;
         ERROR_IF_NULL(internal_status);
-
         if(internal_status->frame_lock)
         {
             DPRINTF("Can't point to new frame before unpointing previous frame.");
             return CAMWIRE_FAILURE;
         }
-
+        internal_status->frame.reset(new dc1394video_frame_t);
         dc1394video_frame_t *frame = internal_status->frame.get();
         int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_WAIT, &frame);
         if(dc1394_return != DC1394_SUCCESS)
@@ -2394,19 +2393,16 @@ int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, v
             return CAMWIRE_FAILURE;
         }
 
-        ERROR_IF_NULL(internal_status->frame);
-        *buf_ptr = (void *)internal_status->frame->image;
+        ERROR_IF_NULL(frame);
+        *buf_ptr = (void *)frame->image;
         internal_status->frame_lock = 1;
-
         /*  Record buffer timestamp for later use by camwire_get_timestamp(),
             because we don't want to assume that dc1394_capture_enqueue()
             does not mess with its frame arg:*/
-        internal_status->dma_timestamp = internal_status->frame->timestamp*1.0e-6;
-
+        internal_status->dma_timestamp = frame->timestamp*1.0e-6;
         /* Increment the frame number if we have a frame: */
         ++internal_status->frame_number;
-
-        if(buffer_lag)
+        if(buffer_lag > 0)
             ERROR_IF_CAMWIRE_FAIL(get_framebuffer_lag(c_handle, buffer_lag));
 
         return CAMWIRE_SUCCESS;
@@ -2432,7 +2428,7 @@ int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_hand
             DPRINTF("Can't point to new frame before unpointing previous frame.");
             return CAMWIRE_FAILURE;
         }
-
+        internal_status->frame.reset(new dc1394video_frame_t);
         dc1394video_frame_t *frame = internal_status->frame.get();
         int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_POLL, &frame);
         if(dc1394_return != DC1394_SUCCESS)
@@ -2442,19 +2438,19 @@ int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_hand
             return CAMWIRE_FAILURE;
         }
 
-        ERROR_IF_NULL(internal_status->frame);
-        *buf_ptr = (void *)internal_status->frame->image;
+        ERROR_IF_NULL(frame);
+        *buf_ptr = (void *)frame->image;
         internal_status->frame_lock = 1;
 
         /*  Record buffer timestamp for later use by camwire_get_timestamp(),
             because we don't want to assume that dc1394_capture_enqueue()
             does not mess with its frame arg:*/
-        internal_status->dma_timestamp = internal_status->frame->timestamp*1.0e-6;
+        internal_status->dma_timestamp = frame->timestamp*1.0e-6;
 
         /* Increment the frame number if we have a frame: */
         ++internal_status->frame_number;
 
-        if(buffer_lag)
+        if(buffer_lag > 0)
             ERROR_IF_CAMWIRE_FAIL(get_framebuffer_lag(c_handle, buffer_lag));
 
         return CAMWIRE_SUCCESS;
@@ -2472,13 +2468,14 @@ int camwire::camwire::unpoint_frame(const Camwire_bus_handle_ptr &c_handle)
     try
     {
         ERROR_IF_NULL(c_handle);
-        User_handle internal_status = c_handle->userdata;
+        User_handle internal_status(new Camwire_user_data);
+        internal_status = c_handle->userdata;
         ERROR_IF_NULL(internal_status);
 
         if(internal_status->frame_lock)
         {
             ERROR_IF_DC1394_FAIL(dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame.get()));
-            internal_status->frame = 0;
+            internal_status->frame.reset();
             internal_status->frame_lock = 0;
         }
         return CAMWIRE_SUCCESS;
