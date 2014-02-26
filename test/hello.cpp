@@ -49,34 +49,15 @@ int main()
     {
         camera_managers[i] = std::shared_ptr<camwire::camwire>(new camwire::camwire);
         ERROR_IF_CAMWIRE_FAIL(camera_managers[i]->create(bus->get_bus_handler(i)));
+        /* Print some info: */
+        camera_managers[i]->get_identifier(bus->get_bus_handler(i), camid);
+        camera_managers[i]->get_frame_size(bus->get_bus_handler(i), w, h);
+
+        std::cout << "Vendor name: " << camid.vendor << std::endl;
+        std::cout << "Model name: " << camid.model << std::endl;
+        std::cout << "Chip id: " << camid.chip << std::endl;
+        std::cout << "Frame size: " << w << "x" << h << std::endl;
     }
 
-    /* Initialize the camera: */
-    /*c_handle = handle_array[0];
-    camwire_return = camwire_create(c_handle);
-    if (camwire_return != CAMWIRE_SUCCESS)
-    {
-	fprintf(stderr, "Could not initialize the camera.\n");
-	camwire_destroy(c_handle);
-	camwire_bus_destroy();
-	return 1;
-    }
-    */
-    /* Print some info: */
-    /*camwire_get_identifier(c_handle, &camid);
-    camwire_get_frame_size(c_handle, &w, &h);
-
-    printf("Vendor name:       %s\n", camid.vendor);
-    printf("Model name:        %s\n", camid.model);
-    printf("Vendor & chip ID:  %s\n", camid.chip);
-
-
-    printf("Frame sizes:  %d x %d\n", w, h);
-    */
-    /* Clean up: */
-    /*
-    camwire_destroy(c_handle);
-    camwire_bus_destroy();
-    */
     return 0;
 } /* main() */

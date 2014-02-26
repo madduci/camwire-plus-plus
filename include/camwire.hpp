@@ -446,18 +446,11 @@ namespace camwire
 
         /* Set to protected in case of Subclassing */
         protected:
-            /* Inverse gamma transform look-up table used by camwire_inv_gamma().
-               Assumed to be initialized when Camwire_user_data.gamma_maxval
-               is non-zero: */
             uint16_t gamma_lut[256];
             Camwire_id cam_id;
             Camwire_user_data user_data;
             camwire(const camwire &cam);
             camwire& operator=(const camwire &cam);
-
-            //the UNIX one throws if the environment variable is NULL
-            bool getenv(const char *name, std::string &env);
-
             /*
              Does the actual work of camwire_create() and
               camwire_create_from_struct(), after they have initialized the camera
@@ -485,6 +478,8 @@ namespace camwire
               Needed by many camwire_get/set_...() functions.
             */
             int get_shadow_state(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set);
+
+            bool getenv(const char *name, std::string &env);
 
             int sleep_frametime(const Camwire_bus_handle_ptr &c_handle, const double multiple);
             /*
@@ -525,13 +520,13 @@ namespace camwire
               Attempts to open a configuration file for reading.  Returns 1 if
               stream pointer creation was successful or 0 on failure.
             */
-            int find_conf_file(const Camwire_id &id, FILE *conffile);
+            int find_conf_file(const Camwire_id &id, std::string &conffilename);
             /*
               Attempts to open the named configuration file for reading after
               appending the configuration filename extension.  Returns the stream
               pointer on success or 0 on failure.
             */
-            int open_named_conf_file(const std::string &path, const std::string &filename, FILE *conffile);
+            int open_named_conf_file(const std::string &path, const std::string &filename, std::string &conffilename);
             /*
               Reads configuration from the given conf file into the given
               configuration structure. Returns CAMWIRE_SUCCESS on success or
@@ -634,6 +629,10 @@ namespace camwire
               9 given AVT signed 32-bit int register values.
             */
             void convert_avtvalues2colourcoefs(const int32_t val[9], double coef[9]);
+            /*
+              Returns the numeric format and mode corresponding to the given dc1394
+              video_mode.  */
+            void convert_dc1394video_mode2format_mode(const dc1394video_mode_t video_mode, int &format, int &mode);
             /*
               Returns the pixel tiling as obtained directly from the camera.
             */

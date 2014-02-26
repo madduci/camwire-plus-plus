@@ -280,6 +280,7 @@ namespace camwire
     {
         Camera_handle camera;
         User_handle userdata;
+
         /* Returns the dc1394camera_t camera handle for the given camwire
            handle.  Needed by many dc1394 functions in Camwire. */
         Camera_handle handle_get_camera()
@@ -294,20 +295,25 @@ namespace camwire
             return userdata;
         }
 
-        int handle_set_userdata(User_handle user_data)
+        int handle_set_userdata(User_handle &user_data)
         {
             try
             {
-                if(userdata)
+                if(user_data)
                 {
                     userdata = user_data;
                     return CAMWIRE_SUCCESS;
                 }
-                else return CAMWIRE_FAILURE;
+                else
+                {
+                    userdata.reset();
+                    return CAMWIRE_FAILURE;
+                }
             }
-            catch(std::runtime_error &re)
+            catch(std::bad_alloc &ba)
             {
                 DPRINTF("Failed to set user data for Camera handler");
+                userdata.reset();
                 return CAMWIRE_FAILURE;
             }
         }

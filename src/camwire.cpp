@@ -7,6 +7,7 @@
 #include <cfloat>           //definition of DBL_MAX
 #include <netinet/in.h>     //htons on Linux
 #include <climits>          //definition of INT_MAX
+#include <sstream>         //stringstream
 
 camwire::camwire::camwire()
 {
@@ -40,48 +41,58 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
         /* Allocate zero-filled space for internal status, and register a
                    pointer to it in the camera handle: */
-        User_handle internal_status(new Camwire_user_data);
-        Camwire_conf_ptr config;
+        if(!c_handle->userdata)
+            c_handle->userdata.reset(new Camwire_user_data);
+        User_handle internal_status = c_handle->userdata; //std::shared_ptr<Camwire_user_data>(new Camwire_user_data);
+        ERROR_IF_NULL(internal_status); 	/* Allocation failure.*/
+        Camwire_conf_ptr config(new Camwire_conf);
+        ERROR_IF_NULL(config);
 
         /* Camwire_user_data is defined above.*/
-
-        ERROR_IF_NULL(internal_status); 	/* Allocation failure.*/
-        if (!c_handle->handle_set_userdata(internal_status))
+        /*if (c_handle->handle_set_userdata(internal_status) == CAMWIRE_FAILURE)
         {   /* Already in use.*/
-            DPRINTF("camwire_bus_set_userdata() failed.");
+         /*   DPRINTF("camwire_bus_set_userdata() failed.");
             return CAMWIRE_FAILURE;
         }
-
+        */
         /* Allocate zero-filled space for the extra features: */
-        internal_status->extras = Extra_features_ptr(new Extra_features);
+        internal_status->extras.reset(new Extra_features);
         if (!internal_status->extras)
         { 	/* Allocation failure.*/
-            DPRINTF("calloc(Extra_features) failed.");
+            DPRINTF("initializing (Extra_features) failed.");
             return CAMWIRE_FAILURE;
         }
 
         /* Allocate zero-filled space for the config cache: */
-        internal_status->config_cache = Camwire_conf_ptr(new Camwire_conf);
+
+        /*Actually, the following commented lines will cause a problem in
+        read_conf_file() which checks the config_cache and since it is already
+        existing, it thinks it can copy that one instead of the data coming from file
+
+        Need to be reorganized
+
+        */
+        /*internal_status->config_cache.reset(new Camwire_conf);
         if (!internal_status->config_cache)
-        { 	/* Allocation failure.*/
-            DPRINTF("calloc(Camwire_conf) failed.");
+        {
+            DPRINTF("initializing (Camwire_conf) failed."); // Allocation failure.
             free_internals(c_handle);
             return CAMWIRE_FAILURE;
-        }
+        }*/
 
         /* Allocate space and make a copy of the initial settings: */
-        internal_status->current_set = Camwire_state_ptr(new Camwire_state);
+        internal_status->current_set.reset(new Camwire_state);
         if (!internal_status->current_set)
         { 	/* Allocation failure.*/
-            DPRINTF("malloc(Camwire_state) failed.");
+            DPRINTF("initializing (Camwire_state) failed.");
             free_internals(c_handle);
             return CAMWIRE_FAILURE;
         }
 
         internal_status->current_set = set;
-
         /* Get 1394-specific hardware configuration: */
         if (get_config(c_handle, config) != CAMWIRE_SUCCESS)
         {
@@ -89,7 +100,6 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
             free_internals(c_handle);
             return CAMWIRE_FAILURE;
         }
-
         /* Make sure the video1394 device is not already listening on this
            channel (due to a provious process being killed without resetting
            the camera).  Hopefully this won't hurt anything: */
@@ -98,13 +108,14 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
 
         /* Connect the camera to the bus and initialize it with our
            settings: */
+        DPRINTF("Connecting camera");
         if (connect_cam(c_handle, config, set) != CAMWIRE_SUCCESS)
         {
             DPRINTF("connect_cam() failed.");
             free_internals(c_handle);
             return CAMWIRE_FAILURE;
         }
-
+        DPRINTF("Creation completed.");
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
@@ -114,9 +125,74 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
     }
 }
 
-int camwire::camwire::generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &conf)
+/* Queries the camera and attempts to create a sensible default
+   configuration.  Returns CAMWIRE_SUCCESS on success or CAMWIRE_FAILURE
+   on failure.  */
+/* The IEEE 1394 IIDC digital camera (DCAM) specification gives camera
+   manufacturers a choice of several predefined resolutions called
+   "formats":
+
+   Format 0 is for 160x120 up to 640x480 (VGA).
+   Format 1 is for 800x600 up to 1024x768 (SVGA).
+   Format 2 is for 1280x960 up to 1600x1200 (XVGA).
+   Format 6 is "memory channels" or still images.
+   Format 7 is for scalable image sizes. */
+int camwire::camwire::generate_default_config(const Camwire_bus_handle_ptr &c_handle, Camwire_conf_ptr &cfg)
 {
-    return CAMWIRE_SUCCESS;
+    try
+    {
+        dc1394video_mode_t video_mode;
+        dc1394video_modes_t mode_list;
+        /* Initialize the camera to factory settings: */
+        ERROR_IF_NULL(c_handle);
+        /* dc1394_camera_reset() does not work on all cameras, so we are
+           lenient on the test: */
+        int dc1394_return = dc1394_camera_reset(c_handle->camera.get());
+        if (dc1394_return != DC1394_SUCCESS)
+        {
+            DPRINTF("Warning: dc1394_camera_reset() failed.  Continuing configuration, "
+                "but camera may not be properly initialized.");
+            sleep(1);  /* Increase chances that camera may recover.*/
+        }
+
+        /* video_mode = get_1394_video_mode(c_handle); */
+
+        /* Determine the highest supported format and mode: */
+        ERROR_IF_DC1394_FAIL(dc1394_video_get_supported_modes(c_handle->camera.get(), &mode_list));
+        if (mode_list.num == 0)
+        {
+            DPRINTF("dc1394_video_get_supported_modes() returned an empty list.");
+            return CAMWIRE_FAILURE;
+        }
+
+        video_mode = mode_list.modes[mode_list.num-1];  /* Highest format and mode. */
+        convert_dc1394video_mode2format_mode(video_mode, cfg->format, cfg->mode);
+
+        /* Some default values (may be overwritten below): */
+        cfg->max_packets = 4095;
+        cfg->min_pixels = 4096;
+        cfg->trig_setup_time = 0.0;
+        cfg->exposure_quantum = 20e-6;
+        cfg->exposure_offset = 0.0;
+        cfg->line_transfer_time = 0.0;
+        cfg->transmit_setup_time = 0.0;
+
+        /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
+        cfg->bus_speed = 400;
+        cfg->transmit_overlap = 0;
+        cfg->drop_frames = 0;
+        cfg->dma_device_name[0] = '\0'; 	/* Use default.*/
+
+        /* FIXME: Some of the defaults, eg. bus_speed, above could be read
+           from the camera.*/
+
+        return CAMWIRE_SUCCESS;
+    }
+    catch(std::runtime_error &re)
+    {
+        DPRINTF("Failed to generate default config.");
+        return CAMWIRE_FAILURE;
+    }
 }
 
 int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_handle, Camwire_state_ptr &set)
@@ -454,6 +530,7 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
 {
     try
     {
+        ERROR_IF_NULL(c_handle);
         User_handle internal_status = c_handle->userdata;
         ERROR_IF_NULL(internal_status);
         /* If dc1394_capture_stop() is called without a preceding
@@ -461,11 +538,10 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
            into a tangled state.  That is why we keep track with the
            camera_connected flag, and check it in disconnect_cam(): */
         internal_status->camera_connected = 0;
+
         /* Set 1394B mode if it is available.  Don't check the return
             status, because older cameras won't support it: */
-         dc1394_video_set_operation_mode(c_handle->camera.get(),
-                         DC1394_OPERATION_MODE_1394B);
-
+        dc1394_video_set_operation_mode(c_handle->camera.get(), DC1394_OPERATION_MODE_1394B);
         dc1394video_mode_t video_mode = convert_format_mode2dc1394video_mode(cfg->format, cfg->mode);
         ERROR_IF_ZERO(video_mode);
 
@@ -485,7 +561,6 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
                 DPRINTF("dc1394_video_get_supported_framerates returned an empty list");
                 return CAMWIRE_FAILURE;
             }
-
             frame_rate_index = static_cast<dc1394framerate_t>(convert_framerate2index(set->frame_rate, framerate_list));
             ERROR_IF_ZERO(frame_rate_index);
             /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed, unless there is an entry in the .conf file: */
@@ -498,12 +573,10 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
             ERROR_IF_DC1394_FAIL(
                 dc1394_video_set_framerate(c_handle->camera.get(),
                                frame_rate_index));
-
             ERROR_IF_DC1394_FAIL(
                     dc1394_capture_setup(c_handle->camera.get(),
                          set->num_frame_buffers,
                          DC1394_CAPTURE_FLAGS_DEFAULT));
-
             internal_status->num_dma_buffers = set->num_frame_buffers;
             actual_coding = convert_videomode2pixelcoding(video_mode);
             actual_frame_rate = convert_index2framerate(frame_rate_index);
@@ -721,16 +794,16 @@ int camwire::camwire::config_cache_exists(const User_handle &internal_status)
         return CAMWIRE_FAILURE;
 }
 
-int camwire::camwire::find_conf_file(const Camwire_id &id, FILE *conffile)
+int camwire::camwire::find_conf_file(const Camwire_id &id, std::string &conffilenam)
 {
     try
     {
         std::string env_directory("");
-        if(open_named_conf_file("", id.chip, conffile) == CAMWIRE_SUCCESS)
+        if(open_named_conf_file("", id.chip, conffilenam) == CAMWIRE_SUCCESS)
             return CAMWIRE_SUCCESS;
-         if(open_named_conf_file("", id.model, conffile) == CAMWIRE_SUCCESS)
+         if(open_named_conf_file("", id.model, conffilenam) == CAMWIRE_SUCCESS)
             return CAMWIRE_SUCCESS;
-        if(open_named_conf_file("", id.vendor, conffile) == CAMWIRE_SUCCESS)
+        if(open_named_conf_file("", id.vendor, conffilenam) == CAMWIRE_SUCCESS)
             return CAMWIRE_SUCCESS;
 
         if(!getenv(ENVIRONMENT_VAR_CONF, env_directory))    //getenv throws if not set
@@ -741,15 +814,12 @@ int camwire::camwire::find_conf_file(const Camwire_id &id, FILE *conffile)
         {
             if(env_directory.size() > 0)
             {
-                if(open_named_conf_file(env_directory, id.chip, conffile) == CAMWIRE_SUCCESS)
+                if(open_named_conf_file(env_directory, id.chip, conffilenam) == CAMWIRE_SUCCESS)
                     return CAMWIRE_SUCCESS;
-                DPRINTF("Fourth");
-                if(open_named_conf_file(env_directory, id.model, conffile) == CAMWIRE_SUCCESS)
+                if(open_named_conf_file(env_directory, id.model, conffilenam) == CAMWIRE_SUCCESS)
                     return CAMWIRE_SUCCESS;
-                DPRINTF("Fifth");
-                if(open_named_conf_file(env_directory, id.vendor, conffile) == CAMWIRE_SUCCESS)
+                if(open_named_conf_file(env_directory, id.vendor, conffilenam) == CAMWIRE_SUCCESS)
                     return CAMWIRE_SUCCESS;
-                DPRINTF("Sixth");
             }
         }
 
@@ -763,11 +833,11 @@ int camwire::camwire::find_conf_file(const Camwire_id &id, FILE *conffile)
     }
 }
 
-int camwire::camwire::open_named_conf_file(const std::string &path, const std::string &filename, FILE *conffile)
+int camwire::camwire::open_named_conf_file(const std::string &path, const std::string &filename, std::string &conffilename)
 {
     try
     {
-        std::string conffilename("");
+        conffilename = "";
         if(path.length() > 0)
         {
             conffilename = path;
@@ -775,17 +845,24 @@ int camwire::camwire::open_named_conf_file(const std::string &path, const std::s
                 conffilename += "/";
         }
 
+        FILE *conffile;
         conffilename += filename + CONFFILE_EXTENSION;
         /* Check if previously pointing to other data and release it */
-        conffile = fopen(conffilename.c_str(), "r");
-        if(conffile)
+        if((conffile = fopen(conffilename.c_str(), "r")) != NULL)
+        {
+            fclose(conffile);
             return CAMWIRE_SUCCESS;
+        }
         else
+        {
+            conffilename = "";
             return CAMWIRE_FAILURE;
+        }
     }
     catch(std::runtime_error &re)
     {
         DPRINTF("Failed to open configuration file");
+        conffilename = "";
         return CAMWIRE_FAILURE;
     }
 }
@@ -1018,6 +1095,22 @@ void camwire::camwire::convert_avtvalues2colourcoefs(const int32_t val[9], doubl
     catch(std::out_of_range &oor)
     {
         DPRINTF("Cannot convert avt values to colour coefficients");
+    }
+}
+
+void camwire::camwire::convert_dc1394video_mode2format_mode(const dc1394video_mode_t video_mode, int &format, int &mode)
+{
+    int mode_offset;
+
+    for (int fmt = 7; fmt >= 0; --fmt)
+    {
+        mode_offset = mode_dc1394_offset[fmt];
+        if (mode_offset != 0 && video_mode >= mode_offset)
+        {
+            format = fmt;
+            mode = video_mode - mode_offset;
+            break;
+        }
     }
 }
 
@@ -1390,8 +1483,8 @@ dc1394video_mode_t camwire::camwire::convert_format_mode2dc1394video_mode(const 
 {
     try
     {
-        dc1394video_mode_t videomode = static_cast<dc1394video_mode_t>(mode_dc1394_offset[format] + mode);
-        return videomode;
+        int videomode = static_cast<dc1394video_mode_t>(mode_dc1394_offset[format] + mode);
+        return static_cast<dc1394video_mode_t>(videomode);
     }
     catch(std::runtime_error &re)
     {
@@ -1948,7 +2041,7 @@ camwire::Camwire_tiling camwire::camwire::probe_camera_tiling(const Camwire_bus_
     try
     {
         dc1394video_mode_t video_mode;
-        uint32_t filter_id;
+        dc1394color_filter_t filter_id;
         int dc1394_return;
 
         video_mode = get_1394_video_mode(c_handle);
@@ -1959,7 +2052,7 @@ camwire::Camwire_tiling camwire::camwire::probe_camera_tiling(const Camwire_bus_
         }
         dc1394_return = dc1394_format7_get_color_filter(c_handle->camera.get(),
                                 video_mode,
-                                reinterpret_cast<dc1394color_filter_t*>(&filter_id));
+                                &filter_id);
         if (dc1394_return != DC1394_SUCCESS)
         {
             DPRINTF("dc1394_format7_get_color_filter() failed.");
@@ -3343,19 +3436,27 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
         if(internal_status && config_cache_exists(internal_status))
         {
             cfg = internal_status->config_cache;
+            DPRINTF("Cached config available");
         }
         else
         {
             /* Read a conf file and cache it.*/
             ERROR_IF_CAMWIRE_FAIL(get_identifier(c_handle, identifier));
             FILE *conffile;
-            ERROR_IF_CAMWIRE_FAIL(find_conf_file(identifier, conffile));
-            DPRINTF("get_config: find_conf_file executed");
-            if (conffile)
+            std::string conffilename("");
+            cfg.reset(new Camwire_conf);
+            if (find_conf_file(identifier, conffilename) == CAMWIRE_SUCCESS)
             {
+                if((conffile = fopen(conffilename.c_str(), "r")) == NULL)
+                {
+                    DPRINTF("Failed to open configuration file: ");
+                    DPRINTF(conffilename);
+                    return CAMWIRE_FAILURE;
+                }
                 ERROR_IF_CAMWIRE_FAIL(read_conf_file(conffile, cfg));
                 fclose(conffile);
-                if (internal_status && internal_status->config_cache)
+
+                if (internal_status && cfg)
                 { /* A camera has been created (not strictly necessary).*/
                     internal_status->config_cache = cfg;
                 }
@@ -3365,8 +3466,7 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
                 std::cerr << std::endl <<
                 "Camwire could not find a hardware configuration file.\n"
                 "Generating a default configuration..." << std::endl;
-                    ERROR_IF_CAMWIRE_FAIL(
-                    generate_default_config(c_handle, cfg));
+                ERROR_IF_CAMWIRE_FAIL(generate_default_config(c_handle, cfg));
                 std::cout << std::endl <<
                 "----------------------------------------------------------------" << std::endl;
 
@@ -3413,7 +3513,9 @@ int camwire::camwire::get_identifier(const Camwire_bus_handle_ptr &c_handle, Cam
         Camera_handle camera = c_handle->camera;
         identifier.vendor = camera->vendor;
         identifier.model = camera->model;
-        identifier.chip = std::to_string(camera->guid);
+        char chip[32];
+        snprintf(chip, 32, "%" PRIX64 "h", camera->guid);
+        identifier.chip = std::string(chip);
         return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
