@@ -14,21 +14,69 @@
 ***********************************************************************/
 
 #include <iostream>
+#include <thread>
+#include <X11/Xlib.h>
 #include <opencv2/highgui/highgui.hpp>
 #include "camwire.hpp"          /* Camwire_handle, Camwire_id, camwire_...() */
 #include "camwirebus.hpp"       /* Camwire_handle, camwire_bus_...() */
 
-int main()
+int retrieveAndDisplay(int num_camera, const std::shared_ptr<camwire::camwire> &camera_manager, const camwire::Camwire_bus_handle_ptr &handler)
 {
-    int num_cameras;
-    std::shared_ptr<camwire::camwirebus> bus(new camwire::camwirebus);
-    std::vector<std::shared_ptr<camwire::camwire> > camera_managers;
     int w = 0, h = 0;
-    int counter = 0;
     void *capturebuffer = NULL;
     cv::Mat frame;
     camwire::Camwire_id camid;
     camwire::Camwire_state_ptr settings(new camwire::Camwire_state);
+    std::string windowtitle = "Camera"+std::to_string(num_camera);
+
+    std::cout << "Starting thread " << num_camera << std::endl;
+
+
+    ERROR_IF_CAMWIRE_FAIL(camera_manager->create(handler));
+    /* Print some info: */
+    camera_manager->get_identifier(handler, camid);
+    camera_manager->get_frame_size(handler, w, h);
+    std::cout << "Camera " << num_camera << ": Vendor name: " << camid.vendor << std::endl;
+    std::cout << "Camera " << num_camera << ": Model name: " << camid.model << std::endl;
+    std::cout << "Camera " << num_camera << ": Chip id: " << camid.chip << std::endl;
+    std::cout << "Camera " << num_camera << ": Frame size: " << w << "x" << h << std::endl;
+    //init frame
+    frame = cv::Mat(h, w, CV_8UC1);
+    //Start grabbing frames and visualize them
+    camera_manager->get_stateshadow(handler, settings->shadow);
+    int isrunning;
+    camera_manager->get_run_stop(handler, isrunning);
+
+    ERROR_IF_CAMWIRE_FAIL(camera_manager->set_single_shot(handler, 0));
+    ERROR_IF_CAMWIRE_FAIL(camera_manager->set_run_stop(handler, 1));
+    std::cout << "Running Camera " << num_camera << std::endl;
+    isrunning = 1;
+    int bufferlag = 0;
+    for(;;)
+    {
+        if(isrunning)
+        {
+            if (camera_manager->point_next_frame(handler, &capturebuffer, bufferlag) != CAMWIRE_SUCCESS)
+            {
+                std::cout << "Could not point to next frame" << std::endl;
+                exit(-1);
+            }
+            camera_manager->unpoint_frame(handler);
+            frame = cv::Mat(h, w, CV_8U, capturebuffer);
+            cv::imshow(windowtitle, frame);
+            cv::waitKey(30);
+        }
+    }
+
+}
+
+
+int main()
+{
+    XInitThreads();
+    int num_cameras;
+    std::shared_ptr<camwire::camwirebus> bus(new camwire::camwirebus);
+    std::vector<std::shared_ptr<camwire::camwire> > camera_managers;
     /* Initialize the bus: */
     if(bus->create() != CAMWIRE_SUCCESS)
     {
@@ -42,54 +90,20 @@ int main()
         std::cout << "No camera connected." << std::endl;
         return -1;
     }
-
+    camera_managers.resize(num_cameras);
     std::cout << "Number of cameras attached: " << num_cameras << std::endl;
-    //test just one camera:
-
-    std::shared_ptr<camwire::camwire> camera_manager(new camwire::camwire);
-    ERROR_IF_CAMWIRE_FAIL(camera_manager->create(bus->get_bus_handler(0)));
-    /* Print some info: */
-    camera_manager->get_identifier(bus->get_bus_handler(0), camid);
-    camera_manager->get_frame_size(bus->get_bus_handler(0), w, h);
-
-    std::cout << "Vendor name: " << camid.vendor << std::endl;
-    std::cout << "Model name: " << camid.model << std::endl;
-    std::cout << "Chip id: " << camid.chip << std::endl;
-    std::cout << "Frame size: " << w << "x" << h << std::endl;
-    frame = cv::Mat(h, w, CV_8UC1);
-    //Start grabbing frames and visualize them
-    camera_manager->get_stateshadow(bus->get_bus_handler(0), settings->shadow);
-    int isrunning;
-    camera_manager->get_run_stop(bus->get_bus_handler(0), isrunning);
-    if(isrunning)
+    std::vector<std::thread> threads;
+    for(int i = 0; i < num_cameras; ++i)
     {
-        std::cout << "Camera is running" << std::endl;
-    }
-    else
-    {
-        std::cout << "Camera is stopped" << std::endl;
+        std::cout << "Creating camera manager " << i << std::endl;
+        camera_managers[i] = std::shared_ptr<camwire::camwire>(new camwire::camwire);
+        std::cout << "Creating thread " << i << std::endl;
+        threads.push_back(std::thread(retrieveAndDisplay, i, camera_managers[i], bus->get_bus_handler(i)));
     }
 
-    ERROR_IF_CAMWIRE_FAIL(camera_manager->set_run_stop(bus->get_bus_handler(0), 1));
-    std::cout << "Running Camera" << std::endl;
-    isrunning = 1;
-    int bufferlag = 0;
-    for(;;)
+    for(int i = 0; i < num_cameras; ++i)
     {
-        if(isrunning)
-        {
-            std::cout << "Querying frame" << std::endl;
-            if (camera_manager->point_next_frame(bus->get_bus_handler(0), &capturebuffer, bufferlag) != CAMWIRE_SUCCESS)
-            {
-                std::cout << "Could not point to next frame" << std::endl;
-                exit(-1);
-            }
-            camera_manager->unpoint_frame(bus->get_bus_handler(0));
-            std::cout << "Frame: " << counter << std::endl;
-            frame = cv::Mat(h, w, CV_8U, capturebuffer);
-            cv::imshow("Image", frame);
-            cv::waitKey(10);
-        }
+        threads[i].join();
     }
 
     return 0;

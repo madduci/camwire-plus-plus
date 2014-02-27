@@ -276,7 +276,7 @@ namespace camwire
         double dma_timestamp;  /* Persistent record of last DMA buffer timestamp.*/
         Extra_features_ptr extras;
         dc1394featureset_t feature_set;
-        std::shared_ptr<dc1394video_frame_t> frame;
+        dc1394video_frame_t* frame;
         Camwire_conf_ptr config_cache;
         Camwire_state_ptr current_set;
         Camwire_user_data(): camera_connected(0), frame_lock(0), frame_number(0), num_dma_buffers(0) {}
@@ -289,20 +289,6 @@ namespace camwire
     {
         Camera_handle camera;
         User_handle userdata;
-
-        /* Returns the dc1394camera_t camera handle for the given camwire
-           handle.  Needed by many dc1394 functions in Camwire. */
-        Camera_handle handle_get_camera()
-        {
-            return camera;
-        }
-
-        /* Returns a pointer to the user data structure for the given camwire
-           handle.  Needed for internal status maintenance in Camwire. */
-        User_handle handle_get_userdata()
-        {
-            return userdata;
-        }
 
         int handle_set_userdata(User_handle &user_data)
         {

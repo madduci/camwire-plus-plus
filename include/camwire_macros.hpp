@@ -73,6 +73,8 @@ const int CAMWIRE_FAILURE = 0;  /* false */
 
 static const dc1394video_mode_t DC1394_VIDEO_MODE_INVALID = static_cast<dc1394video_mode_t>(0);
 
+static const dc1394color_coding_t DC1394_COLOR_CODING_INVALID = static_cast<dc1394color_coding_t>(0);
+
 
 /* This format string must exactly match the arguments in the fprintf()
    call in camwire_write_state_to_file(): */

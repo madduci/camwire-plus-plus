@@ -110,7 +110,8 @@ int camwire::camwirebus::create()
         /* Fill in the camera handle list: */
         for (int h = 0; h < camcount; ++h)
         {
-            camera.reset(dc1394_camera_new(dc1394_lib, list->ids[h].guid));
+            dc1394camera_t current_camera;
+            camera = std::shared_ptr<dc1394camera_t>(dc1394_camera_new(dc1394_lib, list->ids[h].guid));
             if (camera)
             {
                 handlers[num_cams].reset(new Camwire_bus_handle);

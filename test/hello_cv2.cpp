@@ -95,8 +95,7 @@
       *-----------------------------------------------------------------------*/
      err=dc1394_video_set_transmission(camera, DC1394_ON);
      DC1394_ERR_CLN_RTN(err,cleanup_and_exit(camera),"Could not start camera iso transmission\n");
-     for(;;)
-     {
+     for(;;){
          /*-----------------------------------------------------------------------
           *  capture one frame
           *-----------------------------------------------------------------------*/
@@ -104,15 +103,18 @@
          DC1394_ERR_CLN_RTN(err,cleanup_and_exit(camera),"Could not capture a frame\n");
 
          dc1394_get_image_size_from_video_mode(camera, DC1394_VIDEO_MODE_FORMAT7_7, &width, &height);
-         //cv::Mat img = cv::Mat(height, width, CV_8U, frame->image);
-         //frame=NULL;
-         //cv::imshow("Image", img);
+
+         cv::Mat img = cv::Mat(height, width, CV_8U, frame->image);
+
+         err = dc1394_capture_enqueue(camera, frame);
+         frame=NULL;
+         cv::imshow("Image", img);
 
          printf("Frame %d\n", counter);
          counter++;
-         //cv::waitKey(10);
-     }
+         cv::waitKey(10);
 
+      }
      /*-----------------------------------------------------------------------
       *  stop data transmission
       *-----------------------------------------------------------------------*/

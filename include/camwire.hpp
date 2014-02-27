@@ -684,7 +684,7 @@ namespace camwire
               Returns the libdc1394 colour coding ID that supports the given pixel
               coding, or 0 on error.  The coding_list argument must not be empty.
             */
-            uint32_t convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list);
+            dc1394color_coding_t convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list);
             /*
               Returns the AVT signed 32-bit int register values corresponding to the
               9 given colour correction coefficients.

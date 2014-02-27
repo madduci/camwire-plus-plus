@@ -605,7 +605,7 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
                 return CAMWIRE_FAILURE;
             }
 
-            color_id = static_cast<dc1394color_coding_t>(convert_pixelcoding2colorid(set->coding, coding_list));
+            color_id = (convert_pixelcoding2colorid(set->coding, coding_list));
             if (color_id == 0)
             {
                 DPRINTF("Pixel colour coding is invalid or not supported by the camera.");
@@ -677,8 +677,7 @@ int camwire::camwire::connect_cam(const Camwire_bus_handle_ptr &c_handle, Camwir
         internal_status->num_dma_buffers = set->num_frame_buffers;
         /* Find out camera capabilities (which should only be done after
            setting up the format and mode above): */
-        Camera_handle dc1394_camera = c_handle->camera;
-        internal_status->extras->single_shot_capable = (dc1394_camera->one_shot_capable != DC1394_FALSE ? 1 : 0);
+        internal_status->extras->single_shot_capable = (c_handle->camera->one_shot_capable != DC1394_FALSE ? 1 : 0);
         internal_status->extras->gamma_capable = probe_camera_gamma(c_handle);
         internal_status->extras->colour_corr_capable = probe_camera_colour_correction(c_handle);
         internal_status->extras->tiling_value = probe_camera_tiling(c_handle);
@@ -745,8 +744,8 @@ void camwire::camwire::disconnect_cam(const Camwire_bus_handle_ptr &c_handle)
             {
                 if (internal_status->frame_lock)
                 {
-                    dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame.get());
-                    internal_status->frame.reset();
+                    dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame);
+                    internal_status->frame = 0;
                     internal_status->frame_lock = 0;
                 }
                 dc1394_capture_stop(c_handle->camera.get());
@@ -770,8 +769,8 @@ void camwire::camwire::free_internals(const Camwire_bus_handle_ptr &c_handle)
             if (internal_status->frame_lock)
             {
                 dc1394_capture_enqueue(c_handle->camera.get(),
-                           internal_status->frame.get());
-                internal_status->frame.reset();
+                           internal_status->frame);
+                internal_status->frame = 0;
                 internal_status->frame_lock = 0;
             }
         }
@@ -1372,7 +1371,7 @@ uint32_t camwire::camwire::convert_packetsize2numpackets(const Camwire_bus_handl
     }
 }
 
-uint32_t camwire::camwire::convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list)
+dc1394color_coding_t camwire::camwire::convert_pixelcoding2colorid(const Camwire_pixel coding, const dc1394color_codings_t &coding_list)
 {
     switch (coding)
     {
@@ -1421,10 +1420,10 @@ uint32_t camwire::camwire::convert_pixelcoding2colorid(const Camwire_pixel codin
             return DC1394_COLOR_CODING_RAW16;
             break;
         default:
-            return 0;  /* No such coding.*/
+            return DC1394_COLOR_CODING_INVALID;  /* No such coding.*/
             break;
     }
-    return 0;  /* Not supported by camera.*/
+    return DC1394_COLOR_CODING_INVALID;  /* Not supported by camera.*/
 }
 
 void camwire::camwire::convert_colourcoefs2avtvalues(const double coef[9], int32_t val[9])
@@ -1740,7 +1739,7 @@ int camwire::camwire::get_captureframe(const Camwire_bus_handle_ptr &c_handle, s
     try
     {
         ERROR_IF_NULL(c_handle->userdata);
-        frame.reset(c_handle->userdata->frame.get());
+        frame.reset(c_handle->userdata->frame);
     }
     catch(std::runtime_error &re)
     {
@@ -2148,7 +2147,7 @@ int camwire::camwire::debug_print_status(const Camwire_bus_handle_ptr &c_handle)
             std::cerr << "(null)" << std::endl << std::endl;
 
         std::cerr << "Frame: ";
-        std::shared_ptr<dc1394video_frame_t> capture_frame = internal_status->frame;
+        dc1394video_frame_t *capture_frame = internal_status->frame;
         if(capture_frame)
         {
             std::string image_available;
@@ -2383,9 +2382,8 @@ int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, v
             DPRINTF("Can't point to new frame before unpointing previous frame.");
             return CAMWIRE_FAILURE;
         }
-        internal_status->frame.reset(new dc1394video_frame_t);
-        dc1394video_frame_t *frame = internal_status->frame.get();
-        int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_WAIT, &frame);
+
+        int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_WAIT, &internal_status->frame);
         if(dc1394_return != DC1394_SUCCESS)
         {
             internal_status->frame = 0;
@@ -2393,13 +2391,13 @@ int camwire::camwire::point_next_frame(const Camwire_bus_handle_ptr &c_handle, v
             return CAMWIRE_FAILURE;
         }
 
-        ERROR_IF_NULL(frame);
-        *buf_ptr = (void *)frame->image;
+        ERROR_IF_NULL(internal_status->frame);
+        *buf_ptr = (void *)internal_status->frame->image;
         internal_status->frame_lock = 1;
         /*  Record buffer timestamp for later use by camwire_get_timestamp(),
             because we don't want to assume that dc1394_capture_enqueue()
             does not mess with its frame arg:*/
-        internal_status->dma_timestamp = frame->timestamp*1.0e-6;
+        internal_status->dma_timestamp = internal_status->frame->timestamp*1.0e-6;
         /* Increment the frame number if we have a frame: */
         ++internal_status->frame_number;
         if(buffer_lag > 0)
@@ -2428,9 +2426,7 @@ int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_hand
             DPRINTF("Can't point to new frame before unpointing previous frame.");
             return CAMWIRE_FAILURE;
         }
-        internal_status->frame.reset(new dc1394video_frame_t);
-        dc1394video_frame_t *frame = internal_status->frame.get();
-        int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_POLL, &frame);
+        int dc1394_return = dc1394_capture_dequeue(c_handle->camera.get(), DC1394_CAPTURE_POLICY_POLL, &internal_status->frame);
         if(dc1394_return != DC1394_SUCCESS)
         {
             internal_status->frame = 0;
@@ -2438,14 +2434,14 @@ int camwire::camwire::point_next_frame_poll(const Camwire_bus_handle_ptr &c_hand
             return CAMWIRE_FAILURE;
         }
 
-        ERROR_IF_NULL(frame);
-        *buf_ptr = (void *)frame->image;
+        ERROR_IF_NULL(internal_status->frame);
+        *buf_ptr = (void *)internal_status->frame->image;
         internal_status->frame_lock = 1;
 
         /*  Record buffer timestamp for later use by camwire_get_timestamp(),
             because we don't want to assume that dc1394_capture_enqueue()
             does not mess with its frame arg:*/
-        internal_status->dma_timestamp = frame->timestamp*1.0e-6;
+        internal_status->dma_timestamp = internal_status->frame->timestamp*1.0e-6;
 
         /* Increment the frame number if we have a frame: */
         ++internal_status->frame_number;
@@ -2474,8 +2470,8 @@ int camwire::camwire::unpoint_frame(const Camwire_bus_handle_ptr &c_handle)
 
         if(internal_status->frame_lock)
         {
-            ERROR_IF_DC1394_FAIL(dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame.get()));
-            internal_status->frame.reset();
+            ERROR_IF_DC1394_FAIL(dc1394_capture_enqueue(c_handle->camera.get(), internal_status->frame));
+            internal_status->frame = 0;
             internal_status->frame_lock = 0;
         }
         return CAMWIRE_SUCCESS;
@@ -3318,6 +3314,7 @@ int camwire::camwire::set_pixel_coding(const Camwire_bus_handle_ptr &c_handle, c
     try
     {
         ERROR_IF_NULL(c_handle);
+        ERROR_IF_NULL(c_handle->camera);
         dc1394video_mode_t video_mode;
         video_mode  = get_1394_video_mode(c_handle);
         ERROR_IF_ZERO(video_mode);
@@ -3350,7 +3347,7 @@ int camwire::camwire::set_pixel_coding(const Camwire_bus_handle_ptr &c_handle, c
                     return CAMWIRE_FAILURE;
                 }
 
-                color_id = static_cast<dc1394color_coding_t>(convert_pixelcoding2colorid(coding, coding_list));
+                color_id = (convert_pixelcoding2colorid(coding, coding_list));
                 if (color_id == 0)
                 {
                     DPRINTF("Pixel colour coding is invalid or not supported  by "
@@ -3433,7 +3430,6 @@ int camwire::camwire::get_config(const Camwire_bus_handle_ptr &c_handle, Camwire
         if(internal_status && config_cache_exists(internal_status))
         {
             cfg = internal_status->config_cache;
-            DPRINTF("Cached config available");
         }
         else
         {
