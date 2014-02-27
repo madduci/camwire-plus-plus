@@ -3,13 +3,9 @@
 
     Description:
 
-    A simple invocation of the Camwire library for IEEE 1394 cameras.
+    A simple invocation of the Camwire++ library for IEEE 1394 cameras.
 
-    Compile and link with something like:
-
-    $ gcc hello.cpp -o hello -lcamwireplus -ldc1394 -lm
-
-    $Id: hello.cpp,v 25.2 2014 micheleadduic Exp $
+    $Id: hello_cv.cp p,v 75.2 2014 micheleadduci Exp $
 
 ***********************************************************************/
 

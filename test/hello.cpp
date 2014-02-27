@@ -7,9 +7,9 @@
 
     Compile and link with something like:
 
-    $ gcc hello.cpp -o hello -lcamwireplus -ldc1394 -lm
+    $ gcc hello.cpp -o hello -lcamwire++ -ldc1394 -lm
 
-    $Id: hello.cpp,v 25.2 2014 micheleadduic Exp $
+    $Id: hello.cpp,v 27.2 2014 micheleadduci Exp $
 
 ***********************************************************************/
 
