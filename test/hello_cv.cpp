@@ -3,7 +3,7 @@
 
     Description:
 
-    A simple invocation of the Camwire++ library for IEEE 1394 cameras.
+    Visualization of images from each camera connected, using Camwire++ and OpenCV
 
     $Id: hello_cv.cp p,v 75.2 2014 micheleadduci Exp $
 
@@ -65,7 +65,6 @@ int retrieveAndDisplay(int num_camera, const std::shared_ptr<camwire::camwire> &
     }
 
 }
-
 
 int main()
 {

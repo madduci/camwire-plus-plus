@@ -53,8 +53,8 @@ int camwire::camwire::create(const Camwire_bus_handle_ptr &c_handle, const Camwi
 
         /* Camwire_user_data is defined above.*/
         /*if (c_handle->handle_set_userdata(internal_status) == CAMWIRE_FAILURE)
-        {   /* Already in use.*/
-         /*   DPRINTF("camwire_bus_set_userdata() failed.");
+        {     //Already in use
+            DPRINTF("camwire_bus_set_userdata() failed.");
             return CAMWIRE_FAILURE;
         }
         */
@@ -245,7 +245,7 @@ int camwire::camwire::generate_default_settings(const Camwire_bus_handle_ptr &c_
 
             set->frame_rate = 0;
             double fr = 0.0f;
-            for (int f=0; f < supported_fr.num; ++f)
+            for (unsigned int f=0; f < supported_fr.num; ++f)
             {
                 fr = convert_index2framerate(supported_fr.framerates[f]);
                 if (fr < 0.0f)
@@ -873,6 +873,7 @@ int camwire::camwire::read_conf_file(FILE *conffile, Camwire_conf_ptr &cfg)
     int scan_result = 0, speed = 0, num_bits_set = 0;
     try
     {
+        char dma[255];
         scan_result =
         fscanf(conffile,
                "Camwire IEEE 1394 IIDC DCAM hardware configuration:\n"
@@ -888,7 +889,7 @@ int camwire::camwire::read_conf_file(FILE *conffile, Camwire_conf_ptr &cfg)
                "  transmit_setup_time: %lf\n"
                "  transmit_overlap:    %d\n"
                "  drop_frames:         %d\n"
-               "  dma_device_name:     %[^\n]s",
+               "  dma_device_name:     %s",
                /* FIXME: bus_speed will soon disappear from config: */
                &cfg->bus_speed,
                &cfg->format,
@@ -902,8 +903,9 @@ int camwire::camwire::read_conf_file(FILE *conffile, Camwire_conf_ptr &cfg)
                &cfg->transmit_setup_time,
                &cfg->transmit_overlap,
                &cfg->drop_frames,
-               &cfg->dma_device_name);
+               dma);
 
+        cfg->dma_device_name = std::string(dma);
         if (scan_result == EOF || scan_result < 12)
         {
             DPRINTF("fscanf() failed reading configuration file.");
@@ -1051,7 +1053,7 @@ int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1
     {
         float min_fr;
         double fps, log2f, best, diff;
-        int nearest_index, r, rate_index;
+        int nearest_index, rate_index;
 
         dc1394_framerate_as_float(DC1394_FRAMERATE_MIN, &min_fr);  /* 1.875.*/
         if (frame_rate > 0.0)
@@ -1062,7 +1064,7 @@ int camwire::camwire::convert_framerate2index(const double frame_rate, const dc1
         log2f = log(fps/min_fr)/log(2);  /* 1.875->0, 3.75->1, 7.5->2, etc.*/
         best = DBL_MAX;
         nearest_index = -1;
-        for (r=0; r < framerate_list.num; ++r)
+        for (unsigned int r = 0; r < framerate_list.num; ++r)
         {
             rate_index = framerate_list.framerates[r];
             diff = fabs(log2f - rate_index + DC1394_FRAMERATE_MIN);
@@ -1249,7 +1251,7 @@ uint32_t camwire::camwire::convert_framerate2numpackets(const Camwire_bus_handle
             num_packets = static_cast<u_int32_t>(convert_busspeed2busfreq(config->bus_speed)/frame_rate + 0.5);
             if (num_packets < 1)
                 num_packets = 1;
-            if (num_packets > config->max_packets)
+            if (num_packets > static_cast<u_int32_t>(config->max_packets))
                 num_packets = config->max_packets;
             return num_packets;
     }
@@ -1471,7 +1473,7 @@ void camwire::camwire::convert_colourcoefs2avtvalues(const double coef[9], int32
 
 int camwire::camwire::is_in_coding_list(const dc1394color_codings_t &coding_list, const dc1394color_coding_t color_id)
 {
-    for (int c = 0; c < coding_list.num; ++c)
+    for (unsigned int c = 0; c < coding_list.num; ++c)
     {
         if (coding_list.codings[c] == color_id)  return 1;
     }
@@ -1740,6 +1742,7 @@ int camwire::camwire::get_captureframe(const Camwire_bus_handle_ptr &c_handle, s
     {
         ERROR_IF_NULL(c_handle->userdata);
         frame.reset(c_handle->userdata->frame);
+        return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
@@ -1837,7 +1840,7 @@ int camwire::camwire::feature_has_mode(const std::shared_ptr<dc1394feature_info_
 {
     try
     {
-        for (int m = 0; m < cap.get()->modes.num; ++m)
+        for (unsigned int m = 0; m < cap.get()->modes.num; ++m)
             if (cap.get()->modes.modes[m] == mode)
                 return CAMWIRE_SUCCESS;
         return CAMWIRE_FAILURE;
@@ -1932,7 +1935,7 @@ double camwire::camwire::convert_numpackets2framerate(const Camwire_bus_handle_p
         actual = num_packets;
         if (actual < 1)
             actual = 1;
-        if (actual > config->max_packets)
+        if (actual > static_cast<u_int32_t>(config->max_packets))
             actual = config->max_packets;
         /* FIXME: Use dc1394_video_get_iso_speed() for bus_speed: */
         return convert_busspeed2busfreq(config->bus_speed)/actual;
@@ -2102,6 +2105,7 @@ int camwire::camwire::destroy(const Camwire_bus_handle_ptr &c_handle)
             return CAMWIRE_FAILURE;
         }
     }
+    return CAMWIRE_FAILURE;
 }
 
 int camwire::camwire::debug_print_status(const Camwire_bus_handle_ptr &c_handle)
@@ -2362,6 +2366,7 @@ int camwire::camwire::copy_next_frame(const Camwire_bus_handle_ptr &c_handle, vo
         ERROR_IF_CAMWIRE_FAIL(pixel_depth(coding, depth));
         memcpy(buffer, buf_ptr, (size_t) width*height*depth/8);
         unpoint_frame(c_handle);
+        return CAMWIRE_SUCCESS;
     }
     catch(std::runtime_error &re)
     {
@@ -3706,6 +3711,7 @@ int camwire::camwire::get_single_shot(const Camwire_bus_handle_ptr &c_handle, in
         dc1394bool_t one_shot_set;
         if(!shadow_state->shadow)
         {
+            ERROR_IF_DC1394_FAIL(dc1394_video_get_transmission(c_handle->camera.get(), &iso_en));
             if (iso_en == DC1394_ON)
             {  /* Running in continuous mode.*/
                 shadow_state->running = 1;

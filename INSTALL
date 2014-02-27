@@ -1,0 +1,217 @@
+
+
+
+Camwire installation notes
+==========================
+
+These notes pertain to Camwire 2, which is based on libdc1394 version 2.
+An older version called Camwire 1 is also available to support legacy
+systems.
+
+
+
+Requirements
+
+Camwire 2 needs:
+
+  * Linux kernel 2.6 or later.
+
+  * libdc1394 version 2.1 or later.
+
+  * Kernel modules firewire_core and firewire_ohci.
+
+The hello_cv example also needs:
+
+  * OpenCV
+
+  * Pthreads
+
+  * libX11
+  
+You may use the UNIX `locate' tool to check if and where these libraries
+are installed on your system.  You only need them if you want to run or
+compile cammonitor; the Camwire library itself does not need them.
+
+If you want to compile Camwire from source, you will need CMake
+(http://www.cmake.org/) installed on your computer (see the Compile
+section below).
+
+
+Download
+
+You can download the latest Camwire release from
+http://kauri.auck.irl.cri.nz/~johanns/camwire/.  It has both binary and
+source packages.
+
+
+Compile (optional)
+
+You can choose to compile Camwire from source (in which case you need to
+download the source package), or you can skip the compile step and
+install the pre-compiled binaries (in which case you need to download
+the binary package matching your platform).
+
+Assuming you wish to compile from source, Camwire is built with CMake
+(http://www.cmake.org/).  If you don't use CMake, my apologies for
+adding another requirement.  CMake is a capable platform-independent
+generator of build configuration files (in the case of Unix and
+GNU/Linux, CMake generates Makefiles).  It is used by well-known
+projects like KDE.
+
+  * Create two temporary directories: one to hold the source files and
+    one to build the binaries in.
+
+  * Copy the source package camwire2-x.x.x-Source... to the temporary
+    source directory and extract the compressed archive.  Note the name
+    of the subdirectory (something like camwire2-x.x.x-Source) which
+    holds the source files.
+
+  * cd to the temporary build directory.
+
+  * Run CMake (GUI or command line), supplying the build directory
+    (current) and source directory (subdirectory noted above).
+
+  * Use CMake to configure and generate the Makefiles, choosing default
+    native compilers and setting CMake variables as follows:
+
+    CMAKE_BUILD_TYPE      "Release"
+    CMAKE_INSTALL_PREFIX  The base of the Camwire install tree (usually
+                          /usr/local).
+
+  * Still in the build directory, run from the command line:
+
+    make
+
+If CMake or make fails to find required libraries like libdc1394, you
+may have to edit CMakeLists.txt in the source directory and add
+find_library commands or edit the existing find_library commands to
+provide more hints for the PATHS argument.  Then repeat the configure,
+generate and make steps.
+
+If you don't want to compile the cammonitor example (because you don't
+have the required libraries for instance), edit examples/CMakeLists.txt
+in the source directory tree and # comment out the line
+"add_subdirectory(cammonitor)".
+
+
+Install
+
+  * If you compiled from source (Compile section above), stay in the
+    build directory and run from the command line:
+
+    make install
+
+    (It also installs the examples if you built them.)
+
+  * If you downloaded the binary package, extract it in a temporary
+    build directory.  The archive will put the binaries in a
+    subdirectory called something like camwire2-x.x.x-Linux-...  From
+    there you can move the following subdirectories to your preferred
+    install location:
+
+    include
+    lib
+    etc
+    [optional] share
+    [optional] bin
+
+    The etc directory contains camera configuration data; see the
+    documentation in CONFIGURATION.  The optional share directory
+    contains some Camwire icon images for your viewing pleasure.  The
+    bin directory is optional because you may never need to run any of
+    the example executables.
+
+  * [Optional] You may remove the temporary source and build directory
+    trees.
+
+  * If you installed Camwire in a non-standard place, you may have to do
+    help your system find the example binaries and the Camwire library.
+    Either make symbolic links in directories already listed in your
+    PATH and LD_LIBRARY_PATH environment variables, or add your Camwire
+    bin and lib installation directories to those variables; see `man
+    ld'.
+
+For example, to access the Camwire library for linking with your camera
+application either
+
+    cd /usr/local/lib
+    (As root:)
+    ln -s /my_preferred_location/lib/libcamwire_1394.a libcamwire_1394.a
+    ln -s /my_preferred_location/lib/libcamwire_1394.so libcamwire_1394.so
+    ln -s /my_preferred_location/lib/libcamwire_1394.so.y libcamwire_1394.so.y
+    (where y is the so version number)
+or
+    export LD_LIBRARY_PATH=LD_LIBRARY_PATH:/my_preferred_location/lib
+
+Likewise, to access the example executable (e.g. cammonitor) either
+
+    cd /usr/local/bin
+    (As root:)
+    ln -s /my_preferred_location/bin/cammonitor cammonitor
+    which cammonitor  # Test whether cammonitor is recognized.
+or
+    export PATH=$PATH:/my_preferred_location/bin
+    which cammonitor  # Test whether cammonitor is recognized.
+
+
+Uninstall
+
+  * Simply remove the installed directories and files.  Check the
+    contents of the relevant version of the Camwire binary package to
+    see which files were installed.  You may have to download the binary
+    package again if you compiled from source or had not kept the one
+    you originally installed from.
+
+
+Troubleshooting
+
+  * Camwire won't compile without SDL/Xv/Netpbm: Only the cammonitor
+    example needs SDL, Xv and Netpbm.  You can avoid having to compile
+    it by changing into the examples subdirectory of the source tree and
+    editing CMakeLists.txt by # commenting out the line
+    "add_subdirectory(cammonitor)".  Or you could install the missing
+    libraries.
+
+  * Error message like:
+    "Usage: sdl-config [--prefix[=DIR]] [--exec-prefix[=DIR]] [--version]
+[--cflags] [--libs]
+    CMake Error at examples/cammonitor/CMakeLists.txt:14
+    (set_target_properties):
+      set_target_properties called with incorrect number of arguments."
+    means your version of SDL does not provide static linking.  Edit
+    line 7 of examples/cammonitor/CMakeLists.txt to use --libs instead
+    of --static-libs.
+
+  * "Permission denied" error messages while installing: You don't have
+    sufficient privilege to create files in the installation directory.
+    Try being root if you can, or install it somewhere where you have
+    write permission.  See the comments in the Install section above.
+
+  * Camwire can't find a configuration file when I first run cammonitor:
+    Read and follow the instructions printed to stdout.  Also see
+    CONFIGURATION.  There are configuration files for some cameras in
+    the etc/camwire directory.  Feel free to add your own, and send them
+    to me for inclusion in future releases.
+
+  * Camwire (or libdc1394) fails when I run cammonitor without a
+    configuration file: Some cameras implement the IIDC INITIALIZE CSR
+    command badly and fail when they are physically reset.  Camwire
+    tries to reset the camera when camwire_create[_from_struct]() is
+    called and no conf file is found, or if camwire_get_state() is
+    called before camwire_create[_from_struct]().  One workaround is to
+    copy and rename almost a .conf file from etc/camwire/ to your
+    working directory and your camera's vendor/model/id.  See the
+    documentation in CONFIGURATION.
+
+  * Auto-generated configuration suggests a strange mode: Camwire
+    searches for the highest-numbered mode.  This works well for most
+    people, but in some cases you may want to select another mode or
+    format from you camera's user's manual and edit that into the
+    configuration file instead.
+
+
+Bug reports are much appreciated.
+
+Michele Adduci
+Humboldt Universität zu Berlin, Computer Vision Group, Berlin
+Email: adducimi_at_informatik.hu-berlin.de

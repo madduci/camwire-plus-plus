@@ -110,7 +110,6 @@ int camwire::camwirebus::create()
         /* Fill in the camera handle list: */
         for (int h = 0; h < camcount; ++h)
         {
-            dc1394camera_t current_camera;
             camera = std::shared_ptr<dc1394camera_t>(dc1394_camera_new(dc1394_lib, list->ids[h].guid));
             if (camera)
             {
@@ -160,7 +159,7 @@ int camwire::camwirebus::destroy()
     try
     {
         Camera_handle last_camera(new dc1394camera_t);
-        for(unsigned int i = 0; i < num_cams; ++i)
+        for(int i = 0; i < num_cams; ++i)
         {
             if(i == 0 || handlers[i]->camera != last_camera)
             {
@@ -197,7 +196,7 @@ int camwire::camwirebus::reset()
     {
         try
         {
-            for(unsigned int i = 0; i < num_cams; ++i)
+            for(int i = 0; i < num_cams; ++i)
             {
                 if(i == 0 || handlers[i]->camera.get() != last_camera.get())
                 {
@@ -220,7 +219,7 @@ int camwire::camwirebus::reset()
 
 int camwire::camwirebus::set_handle_userdata(const int num_camera, User_handle user_data)
 {
-    if(num_camera > handlers.size())
+    if(num_camera > (int)handlers.size())
     {
         DPRINTF("Cannot set user data for camera: out of array");
         return CAMWIRE_FAILURE;
@@ -249,7 +248,7 @@ int camwire::camwirebus::get_number_cameras()
 
 camwire::Camwire_bus_handle_ptr camwire::camwirebus::get_bus_handler(const int num_camera)
 {
-    if(num_camera > handlers.size())
+    if(num_camera > (int)handlers.size())
         return 0;
     if(handlers[num_camera])
         return handlers[num_camera];
