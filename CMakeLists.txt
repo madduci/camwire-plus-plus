@@ -77,16 +77,17 @@ ENDIF(DC1394_2_FOUND)
 
 find_package(OpenCV 2.4.6 REQUIRED)
 if(OpenCV_FOUND)
-message("opencv found")
+message("OpenCV found")
 IF(DC1394_2_FOUND)
 message("libdc1394 2.x found")
 find_package(X11 REQUIRED)
 add_executable(hello_cv test/hello_cv.cpp)
 target_link_libraries(hello_cv ${LIBRARY_NAME} ${DC1394_LIBRARIES} ${OpenCV_LIBRARIES} ${X11_LIBRARY} pthread)
+install (TARGETS hello hello_cv DESTINATION bin)
 ENDIF(DC1394_2_FOUND)
 endif(OpenCV_FOUND)
 
-install (TARGETS hello hello_cv DESTINATION bin)
+
 
 ####################################
 # build a CPack driven installer package
