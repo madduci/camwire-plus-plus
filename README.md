@@ -1,4 +1,4 @@
-Camwire++
+Camwire++ [ ![Codeship Status for blackibiza/camwire-plus-plus](https://codeship.com/projects/78064ae0-55dd-0132-0d16-1ad869e028a1/status)](https://codeship.com/projects/49394)
 =========
 @author Michele Adduci <adducimi@informatik.hu-berlin.de>
 
